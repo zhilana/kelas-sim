@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test:model": "tsx scripts/test-model.ts"
+    "test:model": "tsx scripts/test-model.ts",
+    "test:rank": "tsx scripts/test-rank.ts"
   },
   "dependencies": {
     "katex": "^0.16.11",

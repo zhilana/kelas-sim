@@ -27,6 +27,7 @@
   /* Latar badge status: pasangan dengan warna teksnya. */
   --color-good-soft: #edf3ec;
   --color-bad-soft: #fdebec;
+  --color-warn-soft: #fdf3e3;
   /* Teks di atas latar soft. Hijau/k merah harus lebih gelap dari --color-good
      & --color-bad, karena latar soft-nya terang (6.08:1 vs 4.45:1). */
   --color-good-ink: #346538;
@@ -60,6 +61,7 @@
     --color-bad: #f87171;
     --color-good-soft: #16301f;
     --color-bad-soft: #34191a;
+    --color-warn-soft: #33280f;
     --color-good-ink: #4ade80;
     --color-bad-ink: #f87171;
     --color-night: #1c1e1b;

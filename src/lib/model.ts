@@ -61,6 +61,8 @@ export interface SimResult {
     bebanPanasMatahari: number;
     suhuDalam: number;
     skorKenyamanan: number;
+    /** Rincian skor per aspek (0–100), dasar untuk peringkat kelas. */
+    rincian: { suhu: number; udara: number; ruang: number; matahari: number };
     status: { label: string; nilai: string }[];
   };
   langkah: Langkah[];
@@ -314,6 +316,12 @@ export function simulate(raw: Record<string, unknown>): SimResult {
       bebanPanasMatahari: round(solar_heat, 1),
       suhuDalam: round(Tin, 2),
       skorKenyamanan: score,
+      rincian: {
+        suhu: Math.round(temp_score),
+        udara: Math.round(air_score),
+        ruang: Math.round(space_score),
+        matahari: Math.round(sun_score),
+      },
       status: statusList,
     },
     langkah,

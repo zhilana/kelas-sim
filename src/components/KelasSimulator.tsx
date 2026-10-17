@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import TierPopup from "@/components/TierPopup";
+import { rankKelas } from "@/lib/rank";
 import dynamic from "next/dynamic";
 import { simulate } from "@/lib/model";
 import type { Fokus } from "@/lib/model";
@@ -144,8 +146,11 @@ export default function KelasSimulator() {
   const [stage, setStage] = useState<"input" | "hasil">("input");
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const [langkahAktif, setLangkahAktif] = useState(-1);
+  // Popup peringkat: muncul sekali setelah kelas dibangun, lalu ditutup user.
+  const [tampilTier, setTampilTier] = useState(false);
 
   const data = useMemo(() => simulate({ ...form }), [form]);
+  const peringkat = useMemo(() => rankKelas(data), [data]);
 
   const set = (k: keyof FormState) => (v: string) => setForm((f) => ({ ...f, [k]: v }));
   const applyPreset = (patch: Partial<FormState>) => setForm((f) => ({ ...f, ...patch }));
@@ -156,6 +161,7 @@ export default function KelasSimulator() {
   // Transisi antar halaman: View Transitions API + fallback animasi CSS.
   const gotoStage = (s: "input" | "hasil") => {
     setLangkahAktif(-1);
+    if (s === "hasil") setTampilTier(true);
     const doc = document as Document & { startViewTransition?: (cb: () => void) => unknown };
     if (doc.startViewTransition && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       doc.startViewTransition(() => setStage(s));
@@ -413,6 +419,10 @@ export default function KelasSimulator() {
         <Tex tex={String.raw`Q_{\text{matahari}} = A\,I\,\mathrm{SHGC}`} />
         <Tex tex={String.raw`T_{\text{in}} = T_{\text{luar}} + Q/(\rho c_p Q + UA)`} />
       </footer>
+
+      {tampilTier && (
+        <TierPopup peringkat={peringkat} onTutup={() => setTampilTier(false)} />
+      )}
     </main>
   );
 }
