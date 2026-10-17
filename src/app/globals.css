@@ -1,0 +1,189 @@
+@import "tailwindcss";
+
+/* ====== KELAS-SIM — light editorial minimal ======
+   Warm monochrome + satu aksen biru. Flat, tanpa scanline/CRT,
+   radius konsisten 8px, shadow nyaris tidak ada. */
+@theme {
+  /* Font: Excalifont (handwriting) sebagai sans-serif default proyek.
+     --font-excalifont.inflateksikan daftar fallback tulisan tangan dari
+     next/font/local, jadi cukup ditambah tail generik. */
+  --font-sans: var(--font-excalifont), ui-sans-serif, system-ui, sans-serif;
+
+  --color-canvas: #fafaf8;
+  --color-panel: #ffffff;
+  --color-line: #e8e8e4;
+  --color-muted: #787774;
+  --color-ink: #1f2320;
+  /* Aksen tunggal: biru tenang. Hijau hanya untuk status baik. */
+  --color-accent: #2563eb;
+  --color-good: #15803d;
+  --color-warn: #b45309;
+  --color-bad: #b91c1c;
+  /* alias lama yang masih dipakai komponen */
+  --color-night: #ffffff;
+  --color-panel2: #f3f3ef;
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+::selection {
+  background: #dbeafe;
+  color: var(--color-ink);
+}
+
+html {
+  scrollbar-width: thin;
+  scrollbar-color: #d4d4d0 transparent;
+}
+
+/* ====== animasi (transform/opacity saja) ====== */
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.anim-step {
+  animation: fadeUp 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes riseIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.anim-stage {
+  animation: riseIn 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.stagger > * {
+  animation: riseIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.stagger > :nth-child(1) { animation-delay: 0.03s; }
+.stagger > :nth-child(2) { animation-delay: 0.08s; }
+.stagger > :nth-child(3) { animation-delay: 0.13s; }
+.stagger > :nth-child(4) { animation-delay: 0.18s; }
+.stagger > :nth-child(5) { animation-delay: 0.23s; }
+
+/* ====== transisi antar halaman (View Transitions API) ====== */
+::view-transition-old(root) {
+  animation: vt-out 0.22s ease both;
+}
+::view-transition-new(root) {
+  animation: vt-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes vt-out {
+  to {
+    opacity: 0;
+    transform: translateY(-14px) scale(0.995);
+  }
+}
+@keyframes vt-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.997);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+.thin-scroll::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+.thin-scroll::-webkit-scrollbar-thumb {
+  background: #d4d4d0;
+}
+.thin-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* transisi tema halus saat mood berubah */
+.mood-tx,
+.mood-tx * {
+  transition:
+    background-color 0.3s ease,
+    border-color 0.3s ease,
+    color 0.3s ease;
+}
+
+@keyframes fadeInSoft {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.anim-fade-soft {
+  animation: fadeInSoft 0.5s ease both;
+}
+
+/* ====== kontrol form ====== */
+input[type="range"] {
+  appearance: none;
+  -webkit-appearance: none;
+  height: 14px;
+  background: transparent;
+  cursor: ew-resize;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 2px;
+  background: var(--color-line);
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -5px;
+  border-radius: 9999px;
+  background: var(--color-accent);
+}
+input[type="range"]::-moz-range-track {
+  height: 2px;
+  background: var(--color-line);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: none;
+  border-radius: 9999px;
+  background: var(--color-accent);
+}
+
+/* <details> tanpa marker; tanda +/- tipis */
+details > summary {
+  list-style: none;
+}
+details > summary::-webkit-details-marker {
+  display: none;
+}
+details.sec > summary::after {
+  content: "+";
+  float: right;
+  color: var(--color-muted);
+  font-weight: 600;
+}
+details.sec[open] > summary::after {
+  content: "\2212";
+}
+
+.katex {
+  font-size: 1.06em;
+}
