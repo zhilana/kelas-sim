@@ -65,14 +65,14 @@ function KartuLangkah({
       onClick={onClick}
       className={`anim-step w-[252px] shrink-0 snap-center rounded-xl border p-4 text-left transition-all duration-200 ${
         aktif
-          ? "border-accent bg-blue-50/60"
-          : "border-line bg-panel opacity-80 hover:opacity-100 hover:border-[#d4d4d0]"
+          ? "border-accent bg-accent-soft"
+          : "border-line bg-panel opacity-80 hover:opacity-100 hover:border-line-strong"
       }`}
     >
       <div className="mb-2 flex items-center gap-2">
         <span
           className={`grid h-5 w-5 shrink-0 place-items-center rounded-md text-[10px] font-semibold ${
-            aktif ? "bg-accent text-white" : "border border-line text-muted"
+            aktif ? "bg-accent text-canvas" : "border border-line text-muted"
           }`}
         >
           {nomor}
@@ -200,7 +200,7 @@ function Tombol({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-muted transition-colors hover:border-[#d4d4d0] hover:text-ink disabled:pointer-events-none disabled:opacity-40"
+      className="rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-muted transition-colors hover:border-line-strong hover:text-ink disabled:pointer-events-none disabled:opacity-40"
     >
       {children}
     </button>

@@ -12,32 +12,90 @@
   --color-canvas: #fafaf8;
   --color-panel: #ffffff;
   --color-line: #e8e8e4;
-  --color-muted: #787774;
+  /* Garis "hover": sebelumnya hardcode #d4d4d0 (1.49:1, gagal 1.5:1). */
+  --color-line-strong: #c9c9c4;
+  /* #787774 cuma 4.28:1 di canvas — dinaikkan ke #6c6c68 (5.15:1). */
+  --color-muted: #6c6c68;
   --color-ink: #1f2320;
   /* Aksen tunggal: biru tenang. Hijau hanya untuk status baik. */
   --color-accent: #2563eb;
+  /* Latar pilihan aktif (pengganti hardcode bg-blue-50). */
+  --color-accent-soft: #eff6ff;
   --color-good: #15803d;
   --color-warn: #b45309;
   --color-bad: #b91c1c;
+  /* Latar badge status: pasangan dengan warna teksnya. */
+  --color-good-soft: #edf3ec;
+  --color-bad-soft: #fdebec;
+  /* Teks di atas latar soft. Hijau/k merah harus lebih gelap dari --color-good
+     & --color-bad, karena latar soft-nya terang (6.08:1 vs 4.45:1). */
+  --color-good-ink: #346538;
+  --color-bad-ink: #9f2f2d;
   /* alias lama yang masih dipakai komponen */
   --color-night: #ffffff;
   --color-panel2: #f3f3ef;
+  /* Shadow: di dark mode hampir tak terlihat, jadi dinaikkan. */
+  --shadow-soft: 0 2px 10px rgb(0 0 0 / 0.04);
+  --shadow-float: 0 2px 10px rgb(0 0 0 / 0.05);
+}
+
+/* ====== DARK MODE — mengikuti sistem device =====
+   Tailwind v4 memetakan utility warna ke var() di @theme, jadi cukup
+   menimpa variabelnya di sini: bg-panel/text-ink/dsb ikut berubah tanpa
+   menyentuh komponen. Pilih media query (bukan .dark class) supaya otomatis
+   ikut gerbangalam light/dark dan tanpa JS — tidak ada flash saat load. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-canvas: #141513;
+    --color-panel: #1c1e1b;
+    --color-panel2: #242724;
+    --color-line: #2f322e;
+    --color-line-strong: #454a43;
+    --color-muted: #9b9e97;
+    --color-ink: #e9ebe7;
+    --color-accent: #5b9bf8;
+    --color-accent-soft: #14243d;
+    --color-good: #4ade80;
+    --color-warn: #f0b429;
+    --color-bad: #f87171;
+    --color-good-soft: #16301f;
+    --color-bad-soft: #34191a;
+    --color-good-ink: #4ade80;
+    --color-bad-ink: #f87171;
+    --color-night: #1c1e1b;
+    --shadow-soft: 0 2px 12px rgb(0 0 0 / 0.5);
+    --shadow-float: 0 2px 12px rgb(0 0 0 / 0.55);
+  }
+  /* also tell the browser to render native widgets (scrollbar, select,
+     range track) in dark — without this they stay light. */
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+  }
 }
 
 body {
   background: var(--color-canvas);
   color: var(--color-ink);
   font-family: var(--font-sans);
+  /* Transisi halus ketika sistem device berganti light<->dark saat aplikasi
+     sudah terbuka. Dihormati prefers-reduced-motion di bawah. */
+  transition:
+    background-color 0.25s ease,
+    color 0.25s ease;
 }
 
 ::selection {
-  background: #dbeafe;
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
   color: var(--color-ink);
 }
 
 html {
   scrollbar-width: thin;
-  scrollbar-color: #d4d4d0 transparent;
+  scrollbar-color: var(--color-line-strong) transparent;
 }
 
 /* ====== animasi (transform/opacity saja) ====== */
@@ -112,7 +170,7 @@ html {
   width: 6px;
 }
 .thin-scroll::-webkit-scrollbar-thumb {
-  background: #d4d4d0;
+  background: var(--color-line-strong);
 }
 .thin-scroll::-webkit-scrollbar-track {
   background: transparent;

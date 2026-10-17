@@ -193,7 +193,7 @@ export default function KelasSimulator() {
                 type="button"
                 key={pr.nama}
                 onClick={() => applyPreset(pr.patch)}
-                className="rounded-xl border border-line bg-panel px-4 py-3.5 text-left transition-all duration-200 hover:border-[#d4d4d0] hover:shadow-[0_2px_10px_rgba(0,0,0,0.04)] active:scale-[0.98]"
+                className="rounded-xl border border-line bg-panel px-4 py-3.5 text-left transition-all duration-200 hover:border-line-strong hover:shadow-soft active:scale-[0.98]"
               >
                 <span className="block text-sm font-semibold">{pr.nama}</span>
                 <span className="mt-0.5 block text-xs text-muted">{pr.desc}</span>
@@ -261,8 +261,8 @@ export default function KelasSimulator() {
                     onClick={() => set("posisiJendela")(p)}
                     className={`flex flex-col items-center gap-1.5 rounded-lg border px-2 py-2.5 text-xs font-medium transition-colors ${
                       form.posisiJendela === p
-                        ? "border-accent bg-blue-50 text-accent"
-                        : "border-line text-muted hover:border-[#d4d4d0] hover:text-ink"
+                        ? "border-accent bg-accent-soft text-accent"
+                        : "border-line text-muted hover:border-line-strong hover:text-ink"
                     }`}
                   >
                     <DiagramDinding aktif={p} />
@@ -317,7 +317,7 @@ export default function KelasSimulator() {
           <div className="px-4 pb-4">
             <button
               type="submit"
-              className="w-full rounded-lg bg-ink px-6 py-3.5 text-sm font-semibold text-white transition-all hover:bg-black active:scale-[0.99]"
+              className="w-full rounded-lg bg-ink px-6 py-3.5 text-sm font-semibold text-canvas transition-all hover:bg-ink/85 active:scale-[0.99]"
             >
               Hitung &amp; bangun kelas 3D
             </button>
@@ -339,7 +339,7 @@ export default function KelasSimulator() {
       <header className="stagger flex flex-wrap items-center gap-3 py-1">
         <button
           onClick={() => gotoStage("input")}
-          className="rounded-lg border border-line bg-panel px-4 py-2 text-xs font-medium text-muted transition-colors hover:border-[#d4d4d0] hover:text-ink"
+          className="rounded-lg border border-line bg-panel px-4 py-2 text-xs font-medium text-muted transition-colors hover:border-line-strong hover:text-ink"
         >
           ← Ubah input
         </button>
@@ -438,13 +438,13 @@ function SceneOverlay({
   ];
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex flex-wrap items-end justify-between gap-3 p-3">
-      <div className="pointer-events-auto flex flex-wrap items-center gap-1 rounded-lg border border-line bg-panel/95 p-1 shadow-[0_2px_10px_rgba(0,0,0,0.05)] backdrop-blur">
+      <div className="pointer-events-auto flex flex-wrap items-center gap-1 rounded-lg border border-line bg-panel/95 p-1 shadow-float backdrop-blur">
         <span className="px-2 text-xs text-muted">Kamera</span>
         {cams.map((c) => (
           <CamBtn key={c.id} id={c.id} label={c.label} />
         ))}
       </div>
-      <div className="pointer-events-auto flex items-center gap-4 rounded-lg border border-line bg-panel/95 px-3.5 py-2 shadow-[0_2px_10px_rgba(0,0,0,0.05)] backdrop-blur">
+      <div className="pointer-events-auto flex items-center gap-4 rounded-lg border border-line bg-panel/95 px-3.5 py-2 shadow-float backdrop-blur">
         <label className="flex items-center gap-2 text-xs text-muted">
           Bukaan jendela
           <input
@@ -499,10 +499,18 @@ const POSISI_SHORT: Record<FormState["posisiJendela"], string> = {
 /** Diagram tampak-atas; dinding aktif ditandai biru. */
 function DiagramDinding({ aktif }: { aktif: FormState["posisiJendela"] }) {
   const hi = (side: FormState["posisiJendela"]) =>
-    side === aktif ? "var(--color-accent)" : "#d4d4d0";
+    side === aktif ? "var(--color-accent)" : "var(--color-line-strong)";
   return (
     <svg viewBox="0 0 44 34" className="h-8 w-11">
-      <rect x="8" y="4" width="28" height="26" fill="#fafaf8" stroke="#d4d4d0" rx="2" />
+      <rect
+        x="8"
+        y="4"
+        width="28"
+        height="26"
+        fill="var(--color-canvas)"
+        stroke="var(--color-line-strong)"
+        rx="2"
+      />
       <rect x="16" y="27" width="12" height="2.6" rx="1.3" fill={hi("depan")} />
       <rect x="5.4" y="11" width="2.6" height="12" rx="1.3" fill={hi("kiri")} />
       <rect x="36" y="11" width="2.6" height="12" rx="1.3" fill={hi("kanan")} />
@@ -575,7 +583,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 const inputCls =
-  "w-full rounded-lg border border-line bg-panel px-3 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-blue-100";
+  "w-full rounded-lg border border-line bg-panel px-3 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent-soft";
 
 function NumIn({
   onValue,
@@ -615,12 +623,9 @@ function StatusTag({ label }: { label: string }) {
   const ok = /Baik|Nyaman|Cukup/.test(label);
   return (
     <b
-      className="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium"
-      style={
-        ok
-          ? { backgroundColor: "#edf3ec", color: "#346538" }
-          : { backgroundColor: "#fdebec", color: "#9f2f2d" }
-      }
+      className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+        ok ? "bg-good-soft text-good-ink" : "bg-bad-soft text-bad-ink"
+      }`}
     >
       {label}
     </b>
