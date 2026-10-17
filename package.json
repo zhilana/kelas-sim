@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "test:model": "tsx scripts/test-model.ts",
-    "test:rank": "tsx scripts/test-rank.ts"
+    "test:rank": "tsx scripts/test-rank.ts",
+    "test:ucapan": "tsx scripts/test-ucapan.ts"
   },
   "dependencies": {
     "katex": "^0.16.11",

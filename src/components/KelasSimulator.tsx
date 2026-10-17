@@ -400,6 +400,7 @@ export default function KelasSimulator() {
             posisiJendela={data.input.posisiJendela}
             debit={h.debitUdara}
             hotFactor={Math.min(1, Math.max(0.05, (h.suhuDalam - 22) / 12))}
+            suhuDalam={h.suhuDalam}
             fokus={fokusAktif}
             bukaanPct={Number(form.bukaanPct) || 0}
             jumlahKipas={data.input.jumlahKipas}

@@ -4,6 +4,14 @@ import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { Fokus } from "@/lib/model";
+import { moodDari, UCAPAN_GURU, UCAPAN_SISWA } from "@/lib/ucapan";
+
+/**
+ * Font untuk teks bubble. Sengaja pakai font sistem (bukan Excalifont):
+ * teks kecil di dalam sprite 3D perlu tetap terbaca, dan memuat font
+ * handwriting ke tiap tekstur canvas jauh lebih berat.
+ */
+const FONT_BUBBLE = '"Trebuchet MS", "Segoe UI", Verdana, sans-serif';
 
 export interface SceneCanvasProps {
   panjang: number;
@@ -16,6 +24,8 @@ export interface SceneCanvasProps {
   posisiJendela: string;
   debit: number;
   hotFactor: number;
+  /** Suhu udara dalam (°C) — menentukan mood kalimat yang diucapkan karakter. */
+  suhuDalam?: number;
   fokus: Fokus | null;
   /** Persen bukaan jendela (0–100): daun jendela berputar + ventilasi partikel. */
   bukaanPct?: number;
@@ -24,6 +34,19 @@ export interface SceneCanvasProps {
 }
 
 export type CamId = "orbit" | "depan" | "atas" | "samping" | "dalam";
+
+/** Satu karakter di scene: badannya + bubble chat yang menempel di atasnya. */
+interface Orang {
+  grup: THREE.Group;
+  /** true = guru (pakai kopiah), false = siswa. */
+  guru: boolean;
+  /** Sprite bubble; selalu ada tapi disembunyikan saat tidak bicara. */
+  skin: THREE.Sprite;
+  /** Y anchor bubble di atas kepala. */
+  yBubble: number;
+  /** Fase acak untuk animasi "duduk gelisah" saat kelas panas. */
+  fase: number;
+}
 
 interface Refs {
   renderer: THREE.WebGLRenderer;
@@ -35,6 +58,14 @@ interface Refs {
   sun?: THREE.DirectionalLight;
   fans: THREE.Group[];
   leaves: { pivot: THREE.Group; openRotY: number }[];
+  /** Karakter (siswa + guru) beserta bubble chat-nya. */
+  orang: Orang[];
+  /** Tekstur bubble yang sudah di-render sekali di awal, lalu ditukar saat runtime. */
+  bubbleTex: Record<string, BubbleSkin[]>;
+  /** Waktu (clock) saat giliran bicara berikutnya berganti. */
+  chatNext: number;
+  /** Yang sedang bicara sekarang: indeks orang + kapan muncul + kapan hilang. */
+  chatAktif: { i: number; dari: number; sampai: number; sk: BubbleSkin }[];
   camTween: {
     t: number; dur: number;
     fromPos: THREE.Vector3; toPos: THREE.Vector3;
@@ -51,6 +82,105 @@ interface Refs {
 }
 
 const WALL_T = 0.14;
+
+/* ============================ util warna acak ============================ */
+
+/**
+ * PRNG deterministik (LCG). Wajib supaya aksesori/hair/kopiah siswa tetap sama
+ * di setiap render ulang scene — kalau pakai Math.random() warna rambut akan
+ *berganti-ganti tiap scene dibangun ulang.
+ */
+function lcg(seed: number) {
+  let s = seed >>> 0 || 1;
+  return () => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+}
+
+/* ============================ util bubble chat ============================ */
+
+interface BubbleSkin {
+  map: THREE.CanvasTexture;
+  w: number;
+  h: number;
+}
+
+/**
+ * Render teks ke canvas jadi tekstur bubble rounded + ekor di bawah.
+ * Teks dibungkus per baris supaya bubble tidak melebar tak terkendala untuk
+ * kalimat panjang; kanvas dipotong pas mengikuti isi supaya sprite tidak gepeng.
+ */
+function bubbleSkin(text: string, radius: number, font: string, maxHuruf: number): BubbleSkin {
+  const meas = document.createElement("canvas").getContext("2d")!;
+  meas.font = font;
+
+  // Pecah kalimat jadi baris <= maxHuruf, broke di kata bila bisa.
+  const kata = text.split(" ");
+  const baris: string[] = [];
+  let sekarang = "";
+  for (const w of kata) {
+    const calon = sekarang ? `${sekarang} ${w}` : w;
+    if (calon.length <= maxHuruf || !sekarang) {
+      sekarang = calon;
+    } else {
+      baris.push(sekarang);
+      sekarang = w;
+    }
+  }
+  if (sekarang) baris.push(sekarang);
+
+  const lineH = 40;
+  const padX = 24;
+  const padY = 16;
+  const tail = 13;
+  const lebarTeks = Math.max(...baris.map((b) => Math.ceil(meas.measureText(b).width)));
+  const w = lebarTeks + padX * 2;
+  const h = padY * 2 + baris.length * lineH - 8 + tail;
+
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const g = c.getContext("2d")!;
+
+  g.beginPath();
+  g.roundRect(1.5, 1.5, w - 3, h - tail - 3, radius);
+  g.fillStyle = "#fffdf7";
+  g.fill();
+  g.lineWidth = 2.5;
+  g.strokeStyle = "rgba(31,35,32,0.30)";
+  g.stroke();
+
+  // ekor kecil di bawah tengah
+  const cx = w / 2;
+  g.beginPath();
+  g.moveTo(cx - 8, h - tail - 4);
+  g.lineTo(cx, h - 1);
+  g.lineTo(cx + 8, h - tail - 4);
+  g.closePath();
+  g.fillStyle = "#fffdf7";
+  g.fill();
+  g.strokeStyle = "rgba(31,35,32,0.30)";
+  g.lineWidth = 2.5;
+  g.stroke();
+  // tutup garis horizontal yang memotong ekor
+  g.fillStyle = "#fffdf7";
+  g.fillRect(cx - 9, h - tail - 6, 18, 6);
+
+  g.font = font;
+  g.fillStyle = "#1f2320";
+  g.textAlign = "center";
+  g.textBaseline = "middle";
+  baris.forEach((b, i) => {
+    g.fillText(b, cx, padY + i * lineH + lineH / 2 - 6);
+  });
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.minFilter = THREE.LinearFilter;
+  tex.anisotropy = 4;
+  return { map: tex, w, h };
+}
 
 /* ============================ util tekstur ============================ */
 
@@ -145,6 +275,10 @@ export default function SceneCanvas(props: SceneCanvasProps) {
       glows: {},
       fans: [],
       leaves: [],
+      orang: [],
+      bubbleTex: {},
+      chatNext: 0,
+      chatAktif: [],
       camTween: null,
       speedTarget: 1,
       speedCur: 1,
@@ -190,6 +324,7 @@ export default function SceneCanvas(props: SceneCanvasProps) {
       volume: new THREE.Group(),
       jendela: new THREE.Group(),
       siswa: new THREE.Group(),
+      orang: new THREE.Group(),
       udara: new THREE.Group(),
       matahari: new THREE.Group(),
       dinding: new THREE.Group(),
@@ -512,6 +647,145 @@ export default function SceneCanvas(props: SceneCanvasProps) {
     }
     props.layout.slice(0, props.jumlahMeja).forEach((p, i) => mejaKursi(p.x, p.z, i < props.jumlahKursi));
 
+    /* ---------- karakter: siswa + guru (bola sederhana) ---------- */
+    // Warna kulit & aksesori diacak DETERMINISTIK (lcg) supaya tidak
+    // berganti-ganti setiap scene dibangun ulang.
+    // SKIN sengaja hanya rentang terang→sawo matang; warna terlalu gelap /
+    // kecoklatan membuat kepala siswa terbaca seperti gumpalan di layar kecil.
+    const SKIN = [0xf6dcc2, 0xefcfaa, 0xe5bd93, 0xd9aa7c, 0xcb9666, 0xbf8a5c];
+    const BAJU = [0x2f6bd8, 0x1f9d74, 0xc2410c, 0x7c3aed, 0xdb2777, 0x0891b2, 0xca8a04, 0x475569];
+    const RAMBUT = [0x1b1410, 0x2e2119, 0x4a3222, 0x0f0c0a];
+    const KERUDUNG = [0x9b1c5f, 0x1e4d8c, 0x0f766e, 0x6d28d9, 0x9a3412, 0x374151];
+
+    /** Bikin satu karakter dan kembalikan grupnya. */
+    function buatOrang(o: {
+      x: number; z: number; yDuduk: number; guru: boolean; rnd: () => number;
+    }): Orang {
+      const rnd = o.rnd;
+      const grup = new THREE.Group();
+      grup.position.set(o.x, o.yDuduk, o.z);
+      // Siswa menghadap papan tulis (-z); guru menghadap kelas (+z).
+      grup.rotation.y = o.guru ? 0 : Math.PI;
+
+      const skinMat = std(SKIN[Math.floor(rnd() * SKIN.length)], { roughness: 0.85 });
+      const bajuMat = std(o.guru ? 0x1e3a8a : BAJU[Math.floor(rnd() * BAJU.length)], {
+        roughness: 0.8,
+      });
+      const rambutMat = std(RAMBUT[Math.floor(rnd() * RAMBUT.length)], { roughness: 0.9 });
+
+      const torso = new THREE.Mesh(new THREE.SphereGeometry(0.155, 16, 12), bajuMat);
+      torso.scale.set(1, 1.25, 0.92);
+      torso.position.y = 0.22;
+      torso.castShadow = true;
+
+      const kepala = new THREE.Mesh(new THREE.SphereGeometry(0.108, 16, 12), skinMat);
+      kepala.position.y = 0.47;
+      kepala.castShadow = true;
+
+      // aksesoris di atas kepala
+      // PENTING: kepala punya radius 0,108 dan pusat y=0,47, jadi puncak
+      // kepala ada di y=0,578. Aksesoris harus DILETAKKAN DI ATAS puncak itu.
+      // Kalau placed di y=0,5, aksesoris menutupi wajah dan karakter jadi
+      // seperti gumpalan tanpa muka.
+      const PUNCAK = 0.578;
+      if (o.guru) {
+        // kopiah: kubah + pinggiran pipih, duduk rapi di atas kepala
+        const kubah = new THREE.Mesh(
+          new THREE.SphereGeometry(0.112, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+          rambutMat,
+        );
+        kubah.position.y = PUNCAK;
+        kubah.castShadow = true;
+        const pinggiran = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.122, 0.127, 0.05, 18),
+          std(0x14161a, { roughness: 0.75 }),
+        );
+        pinggiran.position.y = PUNCAK + 0.012;
+        pinggiran.castShadow = true;
+        grup.add(kubah, pinggiran);
+      } else if (rnd() < 0.34) {
+        // kerudung: menutupi seluruh kepala dan sedikit menjulur ke bawah
+        const kerudungMat = std(KERUDUNG[Math.floor(rnd() * KERUDUNG.length)], { roughness: 0.9 });
+        const k = new THREE.Mesh(new THREE.SphereGeometry(0.131, 18, 14), kerudungMat);
+        k.scale.set(1, 1.14, 1);
+        k.position.y = 0.468;
+        k.castShadow = true;
+        grup.add(k);
+      } else {
+        // rambut: setengah bola di puncak kepala,wajahnya dibiarkan terlihat
+        const r = new THREE.Mesh(
+          new THREE.SphereGeometry(0.114, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.44),
+          rambutMat,
+        );
+        r.position.y = 0.474;
+        r.rotation.x = -0.1;
+        r.castShadow = true;
+        grup.add(r);
+      }
+
+      grup.add(torso, kepala);
+
+      // bubble chat: sprite kecil dulu, disembunyikan sampai giliran bicara
+      const sk = new THREE.Sprite(
+        new THREE.SpriteMaterial({ transparent: true, opacity: 0, depthWrite: false }),
+      );
+      sk.scale.set(0.01, 0.01, 0.01);
+      sk.position.y = 0.78;
+      sk.renderOrder = 12;
+      sk.visible = false;
+      grup.add(sk);
+
+      G.orang.add(grup);
+      return {
+        grup,
+        guru: o.guru,
+        skin: sk,
+        yBubble: 0.78,
+        fase: rnd() * Math.PI * 2,
+      };
+    }
+
+    // Siswa: duduk di kursi (kursi ada di z + 0.34 dari meja).
+    const orangSiswa: Orang[] = [];
+    props.layout.slice(0, props.jumlahKursi).forEach((p, i) => {
+      orangSiswa.push(
+        buatOrang({ x: p.x, z: p.z + 0.34, yDuduk: 0.46, guru: false, rnd: lcg(i * 977 + 13) }),
+      );
+    });
+    // Guru: DUDUK di kursi di belakang mejanya, menghadap kelas (+z).
+    // Kwasinya harus sama persis dengan kursi guru yang digambar di blok
+    // "meja guru" (x = gx, z = gz - 0.5, tempat duduk y = 0.49) — kalau
+    // dihitung ulang/freehand, guru melayang di atas lantai atau menembus
+    // sandaran kursi.
+    const GURU_X = L / 2 - 1.15;
+    const GURU_Z = -W / 2 + 1.15 - 0.5;
+    const orangGuru: Orang[] = [
+      buatOrang({
+        x: GURU_X,
+        z: GURU_Z,
+        yDuduk: 0.49, // permukaan atas bantalan kursi (0.47 + 0.025)
+        guru: true,
+        rnd: lcg(20250826),
+      }),
+    ];
+    R.orang = [...orangGuru, ...orangSiswa]; // guru di index 0 supaya gampang dipanggil
+
+    /* ---------- bubble chat ---------- */
+    // Pre-render satu texture per kalimat sekali di awal; runtime cuma menukar
+    // material.map, jadi tidak ada canvas work per frame.
+    R.bubbleTex = {};
+    for (const role of ["siswa", "guru"] as const) {
+      const sumber = role === "guru" ? UCAPAN_GURU : UCAPAN_SISWA;
+      const radius = role === "guru" ? 20 : 16;
+      for (const mood of ["panas", "dingin", "nyaman"] as const) {
+        const font = `600 ${role === "guru" ? 30 : 27}px ${FONT_BUBBLE}`;
+        const maksHuruf = role === "guru" ? 13 : 14;
+        R.bubbleTex[`${mood}:${role}`] = sumber[mood].map((t) =>
+          bubbleSkin(t, radius, font, maksHuruf),
+        );
+      }
+    }
+
     /* ---------- meja guru ---------- */
     {
       const gx = L / 2 - 1.15;
@@ -557,11 +831,18 @@ export default function SceneCanvas(props: SceneCanvasProps) {
     R.speedTarget = Math.min(1.6, 0.55 + props.debit * 0.9);
 
     /* ---------- kamera, preset & kontrol ---------- */
+    // PENTING: semua preset harus berada DI DALAM ruangan, yaitu |x| < L/2,
+    // |z| < W/2, dan 0 < y < H. Kalau kamera keluar ruangan, dinding menutup
+    // pandangan dan user hanya melihat layar abu-abu. Semua koefisien di bawah
+    // < 0,5 supaya aman untuk ukuran ruangan 3-20 m.
     const camPresets = (): Record<CamId, { pos: THREE.Vector3; tgt: THREE.Vector3 }> => ({
       orbit: { pos: new THREE.Vector3(L * 0.34, H * 0.68, W * 0.4), tgt: new THREE.Vector3(-L * 0.05, H * 0.4, -W * 0.05) },
-      depan: { pos: new THREE.Vector3(0, H * 0.55, W * 0.95), tgt: new THREE.Vector3(0, H * 0.45, -W / 2) },
-      atas: { pos: new THREE.Vector3(0, Math.max(L, W) * 0.95, 0.001), tgt: new THREE.Vector3(0, 0, 0) },
-      samping: { pos: new THREE.Vector3(L * 0.98, H * 0.5, 0), tgt: new THREE.Vector3(0, H * 0.45, 0) },
+      depan: { pos: new THREE.Vector3(0, H * 0.62, W * 0.42), tgt: new THREE.Vector3(0, H * 0.4, -W * 0.46) },
+      // "atas" boleh berada di atas plafon karena plafon disembunyikan pada view
+      // ini (lihat flyTo). Tingginya dipilih cukup tinggi untuk seluruh
+      // denah lantai masuk frame: 2 * y * tan(fov/2) harus >= ukuran ruangan.
+      atas: { pos: new THREE.Vector3(0, Math.max(L, W) * 1.15, 0.001), tgt: new THREE.Vector3(0, 0, 0) },
+      samping: { pos: new THREE.Vector3(L * 0.46, H * 0.52, 0), tgt: new THREE.Vector3(0, H * 0.45, 0) },
       dalam: { pos: new THREE.Vector3(-L * 0.38, 1.6, W * 0.36), tgt: new THREE.Vector3(0, 1.3, -W * 0.4) },
     });
 
@@ -572,6 +853,9 @@ export default function SceneCanvas(props: SceneCanvasProps) {
         fromPos: R.camera.position.clone(), toPos: p.pos.clone(),
         fromTgt: R.controls.target.clone(), toTgt: p.tgt.clone(),
       };
+      // Plafon menutupi pandangan dari atas, jadi disingkirkan hanya di view
+      // "atas" dan dikembalikan lagi begitu pindah kamera.
+      ceil.visible = id !== "atas";
     };
 
     // Tombol kamera di overlay UI memicu event global ini.
@@ -586,7 +870,10 @@ export default function SceneCanvas(props: SceneCanvasProps) {
     R.controls.enableDamping = true;
     R.controls.target.copy(camPresets().orbit.tgt);
     R.controls.minDistance = 1;
-    R.controls.maxDistance = Math.hypot(L, W) * 0.72;
+    // Harus cukup longgar untuk view "atas" yang jaraknya max(L,W)*1.15 dari
+    // lantai; kalau lebih kecil, OrbitControls akan menarik kamera balik ke
+    // dalam dan preset tidak pernah sampai.
+    R.controls.maxDistance = Math.max(Math.hypot(L, W) * 0.72, Math.max(L, W) * 1.35);
     R.controls.enabled = false;
 
     /* ---------- resize ---------- */
@@ -620,14 +907,23 @@ export default function SceneCanvas(props: SceneCanvasProps) {
 
       // tween kamera menuju preset (mengalahkan orbit manual selama tween)
       if (R.camTween) {
+        // Damping dimatikan & controls.update() dilewati selama tween.
+        // Kalau tidak, momentum damping dari frame sebelumnya menarik kamera
+        // liar ke arah lama setelah kita tulis posisinya, sehingga preset tidak pernah
+        // sampai persis di target.
+        R.controls.enableDamping = false;
         R.camTween.t += dt / R.camTween.dur;
         const p = Math.min(1, R.camTween.t);
         const e = 1 - Math.pow(1 - p, 3);
         R.camera.position.lerpVectors(R.camTween.fromPos, R.camTween.toPos, e);
         R.controls.target.lerpVectors(R.camTween.fromTgt, R.camTween.toTgt, e);
-        if (p >= 1) R.camTween = null;
+        if (p >= 1) {
+          R.camTween = null;
+          R.controls.enableDamping = true;
+        }
+      } else {
+        R.controls.update();
       }
-      R.controls.update();
 
       // daun jendela mengikuti persen bukaan
       for (const lf of R.leaves) {
@@ -638,6 +934,86 @@ export default function SceneCanvas(props: SceneCanvasProps) {
       // kipas plafon berputar — kecepatan ikut debit udara realtime
       const spinSpeed = 2 + debit * 3;
       for (const bl of R.fans) bl.rotation.y -= spinSpeed * dt;
+
+      /* ---------- karakter & bubble chat ---------- */
+      const mood = moodDari(live.current.suhuDalam ?? 25);
+
+      // Saat giliran habis, sembunyikan semua bubble lama…
+      for (const o of R.orang) {
+        o.skin.visible = false;
+      }
+
+      // …lalu pilih 1-3 pembicara baru (dari siswa & guru) untuk giliran ini.
+      if (t >= R.chatNext) {
+        R.chatNext = t + 3.2 + Math.random() * 2.4; // 3,2-5,6 detik per giliran
+        const nOrang = R.orang.length;
+        const maks = Math.min(3, nOrang);
+        const jml = 1 + Math.floor(Math.random() * maks); // 1..3 orang bicara
+        // Acak tanpa pengulangan supaya 2 orang tidak ngomong barengan.
+        const pool = [...R.orang.keys()];
+        for (let i = pool.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [pool[i], pool[j]] = [pool[j], pool[i]];
+        }
+        // 45% giliran melibatkan guru, biar tidak cuma siswa yang bicara.
+        const siswanya = pool.filter((i) => !R.orang[i].guru);
+        const gurunya = pool.filter((i) => R.orang[i].guru);
+        const pilih: number[] = [];
+        if (gurunya.length && Math.random() < 0.45) pilih.push(gurunya[0]);
+        while (pilih.length < jml && siswanya.length) {
+          const ambil = siswanya.shift()!;
+          pilih.push(ambil);
+        }
+        R.chatAktif = pilih.map((i) => {
+          const o = R.orang[i];
+          const list = R.bubbleTex[`${mood}:${o.guru ? "guru" : "siswa"}`];
+          return {
+            i,
+            dari: t,
+            sampai: R.chatNext,
+            sk: list[Math.floor(Math.random() * list.length)],
+          };
+        });
+      }
+
+      // Tampilkan + fade bubble yang sedang giliran bicara.
+      for (const c of R.chatAktif) {
+        const o = R.orang[c.i];
+        if (!o) continue;
+        const masuk = Math.min(1, (t - c.dari) / 0.3); // fade in 0,3 dtk
+        const keluar = Math.min(1, (c.sampai - t) / 0.45); // fade out 0,45 dtk
+        const op = Math.max(0, Math.min(masuk, keluar));
+        const sm = o.skin.material as THREE.SpriteMaterial;
+        if (o.skin.material.map !== c.sk.map) {
+          o.skin.material.map = c.sk.map;
+          o.skin.material.needsUpdate = true;
+        }
+        // Skala per-piksel: bubble 2 baris jadi lebih tinggi tapi lebarnya
+        // tetap terkendali, dan ukuran teksnya konsisten antar bubble.
+        // 0,0033 ~= teks setinggi ~9 cm di dunia nyata — masih proporsional
+        // dengan badan karakter (~1,2 m) tapi terbaca dari kamera orbit.
+        const perPx = 0.0033;
+        const w = c.sk.w * perPx;
+        const h = c.sk.h * perPx;
+        const pop = 0.88 + 0.12 * masuk; // "pop" kecil saat bubble muncul
+        o.skin.scale.set(w * pop, h * pop, 1);
+        // ekor bubble menempel di atas kepala, tumbuh ke atas saat fade-in
+        o.skin.position.y = o.yBubble + h / 2;
+        sm.opacity = op;
+        o.skin.visible = op > 0.01;
+      }
+
+      // Gerak gelisah saat kelas panas: siswa bergoyang kecil.
+      const gelisah = mood === "panas" ? 1 : 0;
+      for (const o of R.orang) {
+        if (o.guru) {
+          // guru tetap tenang, hanya mengangguk pelan
+          o.grup.rotation.z = Math.sin(t * 1.4 + o.fase) * 0.012;
+          o.grup.position.y = o.grup.position.y; // tidak ada gerak vertikal
+          continue;
+        }
+        o.grup.rotation.z = Math.sin(t * (2.4 + gelisah * 1.6) + o.fase) * 0.02 * (1 + gelisah * 2.2);
+      }
 
       // pulsa material sesuai fokus
       for (const [key, entries] of Object.entries(R.glows)) {
@@ -695,8 +1071,59 @@ export default function SceneCanvas(props: SceneCanvasProps) {
       dinding: G.dinding.children.length,
       meja: scene.children.length,
       kipas: R.fans.length,
+      orang: R.orang.length,
+      guru: R.orang.filter((o) => o.guru).length,
+      guruPos: (() => {
+        const g = R.orang.find((o) => o.guru);
+        return g ? g.grup.position.toArray().map((v) => Math.round(v * 100) / 100) : null;
+      })(),
+      bubbleSkala: R.orang.map((o) =>
+        o.skin.visible ? Math.round(o.skin.scale.x * 100) / 100 : null,
+      ),
+      bubbleMuncul: R.orang.filter((o) => o.skin.visible).length,
+      bubbleTeks: R.chatAktif.map((c) => R.orang[c.i]?.skin.material.map ? "ada" : "kosong"),
+      chatDetik: Math.round((R.chatNext - R.clock.elapsedTime) * 10) / 10,
       daunJendela: R.leaves.map((l) => Math.round((l.pivot.rotation.y * 180) / Math.PI)),
       kamera: R.camera.position.toArray().map((v) => Math.round(v * 100) / 100),
+      kameraDiDalamRuang:
+        Math.abs(R.camera.position.x) < L / 2 &&
+        Math.abs(R.camera.position.z) < W / 2 &&
+        R.camera.position.y > 0 &&
+        R.camera.position.y < H,
+      // Sah juga kalau berada di atas plafon TAPI plafonnya disembunyikan
+      // (view "atas") dan tetap di atas tengah denah lantai.
+      kameraSah:
+        (Math.abs(R.camera.position.x) < L / 2 &&
+          Math.abs(R.camera.position.z) < W / 2 &&
+          R.camera.position.y > 0 &&
+          R.camera.position.y < H) ||
+        (!ceil.visible &&
+          Math.abs(R.camera.position.x) < L / 2 &&
+          Math.abs(R.camera.position.z) < W / 2 &&
+          R.camera.position.y >= H),
+      plafonTampil: ceil.visible,
+      // Bukti bahwa aksesoris benar-benar DI ATAS kepala (bukan menutupi muka).
+      karakter: R.orang.slice(0, 4).map((o) => {
+        const anak = o.grup.children as THREE.Mesh[];
+        // Klasifikasi: kepala (bola r=0,108 di y=0,47), torso (bola di y=0,22),
+        // dan sprite bubble (BufferGeometry) BUKAN bagian aksesoris.
+        const isSphere = (m: THREE.Mesh) => m.geometry?.type === "SphereGeometry";
+        const kepala = anak.find((m) => isSphere(m) && Math.abs(m.position.y - 0.47) < 0.001);
+        const aksesoris = anak.filter(
+          (m) => isSphere(m) && Math.abs(m.position.y - 0.22) > 0.001 && m !== kepala,
+        );
+        return {
+          guru: o.guru,
+          jumlahAnak: o.grup.children.length,
+          // y lokal tiap anak: aksesoris > 0,5 = di atas kepala
+          semuaAnak: anak.map(
+            (m) => `${m.geometry?.type}@${Math.round(m.position.y * 1000) / 1000}`,
+          ),
+          kepalaAda: !!kepala,
+          aksesorisTipe: aksesoris.map((a) => a.geometry?.type),
+          aksesorisY: aksesoris.map((a) => Math.round(a.position.y * 1000) / 1000),
+        };
+      }),
     });
 
     /* ---------- bersih-bersih ---------- */
@@ -707,7 +1134,12 @@ export default function SceneCanvas(props: SceneCanvasProps) {
       R.controls.dispose();
       scene.traverse((o) => {
         const mesh = o as THREE.Mesh;
-        if (mesh.isMesh || (o as THREE.Points).isPoints || (o as THREE.LineSegments).isLineSegments) {
+        if (
+          mesh.isMesh ||
+          (o as THREE.Points).isPoints ||
+          (o as THREE.LineSegments).isLineSegments ||
+          (o as THREE.Sprite).isSprite // bubble chat tidak ikut terdispose tanpa ini
+        ) {
           mesh.geometry?.dispose();
           const m = mesh.material as THREE.Material | THREE.Material[];
           const disposeOne = (mm: THREE.Material) => {
@@ -720,6 +1152,11 @@ export default function SceneCanvas(props: SceneCanvasProps) {
         }
       });
       R.renderer.dispose();
+      // Tekstur bubble yang tidak sedang tampil tidak nempel ke material
+      // manapun, jadi harus dibuang manual agar tidak bocor di GPU.
+      for (const list of Object.values(R.bubbleTex)) {
+        for (const sk of list) sk.map.dispose();
+      }
       mount.removeChild(R.renderer.domElement);
       refsRef.current = null;
     };
