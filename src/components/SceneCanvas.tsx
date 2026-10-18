@@ -1542,6 +1542,9 @@ export default function SceneCanvas(props: SceneCanvasProps) {
           Math.abs(R.camera.position.z) < W / 2 &&
           R.camera.position.y >= H),
       plafonTampil: ceil.visible,
+      // Posisi meja siswa terpasang — untuk menguji jarak baris depan dari
+      // papan tulis (harus sedekat meja guru, tidak bisa lebih dekat).
+      posisiMeja: props.layout.slice(0, props.jumlahMeja),
       // Bukti aksesoris tidak menutupi muka: daftar anak grup kepala beserta
       // posisi relative-nya (pusat kepala = y 0; puncak kepala = y 0,108).
       karakter: R.orang.slice(0, 4).map((o) => {

@@ -173,10 +173,21 @@ export function simulate(raw: Record<string, unknown>): SimResult {
   const cols = Math.max(1, Math.round((L - 2) / 1.35));
   const rows = Math.ceil(desks / cols);
   const layout: TitikMeja[] = [];
+  // Baris paling depan maksimal sejajar meja guru, BUKAN bebas menempel
+  // papan tulis: tepi depan meja guru berada di z = −W/2 + 1.15 − 0.275.
+  // Meja siswa tebalnya 0.48 (setengah 0.24), jadi baris pertama dipasang
+  // di −W/2 + 1.15 − 0.035 supaya tepi depannya tepat sejajar meja guru.
+  // Dulu −W/2 + 0.8 → 0.315 m lebih dekat ke papan dari meja guru.
+  const zBaris0 = -W / 2 + 1.115;
+  // Sisa kedalaman ruangan dibagi rata untuk jarak antarbaris, dengan
+  // ruang untuk kursi di belakang meja baris akhir (mejanya +0.34,
+  // sandarannya mencapai +0.55) dan sisa dinding belakang 0.05.
+  const pitch =
+    rows > 1 ? Math.min(1.15, (W / 2 - 0.6 - zBaris0) / (rows - 1)) : 1.15;
   for (let i = 0; i < desks; i++) {
     const [r, c] = [Math.floor(i / cols), i % cols];
     const x = -L / 2 + 1.1 + c * Math.min(1.35, (L - 1.6) / Math.max(cols, 1));
-    const z = -W / 2 + 0.8 + r * Math.min(1.15, (W - 0.8) / Math.max(rows, 1));
+    const z = zBaris0 + r * pitch;
     layout.push({ x: round(x, 3), z: round(z, 3) });
   }
 
