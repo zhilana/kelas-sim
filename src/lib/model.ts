@@ -27,6 +27,46 @@ export interface TitikMeja {
   z: number;
 }
 
+/**
+ * Geometri meja + kursi guru (meter). Diekspor supaya SceneCanvas memakai
+ * angka yang sama — meja, kursi, dan badan guru tidak bisa lepas posisi.
+ */
+export const MEJA_GURU = {
+  lebar: 1.1,
+  dalam: 0.55,
+  /** kursi digeser ke arah papan tulis sejauh ini dari pusat meja */
+  offsetKursi: 0.5,
+  /** pusat meja → tepi belakang sandaran kursi guru (0,71 + setengah tebal) */
+  belakang: 0.735,
+  /** sisa ruang antara sandaran kursi guru dan dinding papan tulis */
+  sisaBelakang: 0.3,
+  /** jarak pusat meja guru dari dinding samping (pojok depan) */
+  selaSamping: 1.15,
+  /** lorong antara meja guru dan meja siswa baris pertama */
+  lorong: 0.35,
+} as const;
+
+/** Geometri meja + kursi siswa (meter). */
+export const MEJA_SISWA = {
+  lebar: 0.66,
+  dalam: 0.48,
+  /** pusat meja → tepi belakang sandaran kursi siswa */
+  belakang: 0.55,
+  /** jarak antarbaris minimum supaya kursi tidak menembus meja di belakangnya */
+  pitchMin: 0.75,
+} as const;
+
+/**
+ * Pusat meja guru: di pojok depan (pinggir), menghadap kelas. Guru punya
+ * barisnya sendiri, jadi baris meja siswa selalu dimulai di belakang meja ini.
+ */
+export function posisiMejaGuru(L: number, W: number): TitikMeja {
+  return {
+    x: round(L / 2 - MEJA_GURU.selaSamping, 3),
+    z: round(-W / 2 + MEJA_GURU.sisaBelakang + MEJA_GURU.belakang, 3),
+  };
+}
+
 export interface SimResult {
   ok: true;
   input: {
@@ -170,23 +210,33 @@ export function simulate(raw: Record<string, unknown>): SimResult {
 
   const score = Math.round(0.35 * temp_score + 0.3 * air_score + 0.2 * space_score + 0.15 * sun_score);
 
-  const cols = Math.max(1, Math.round((L - 2) / 1.35));
+  // ---- tata letak meja ----
+  // Meja guru berdiri sendiri di baris paling depan (pojok depan, menghadap
+  // kelas); baris meja siswa baru mulai di belakangnya. Jadi tidak ada satu
+  // pun meja siswa yang sebaris (se-z) dengan meja guru.
+  const zGuru = posisiMejaGuru(L, W).z;
+  // Lorong di depan menyusut kalau ruangannya sempit, supaya baris siswa
+  // masih kebagian tempat (ruang normal 8×7 tetap dapat lorong penuh 0,35 m).
+  const lorong = Math.min(MEJA_GURU.lorong, Math.max(0.12, (W - 3) * 0.12));
+  const zBaris0 = zGuru + MEJA_GURU.dalam / 2 + lorong + MEJA_SISWA.dalam / 2;
+  // Sisa kedalaman ruangan dibagi rata untuk jarak antarbaris, dengan ruang
+  // untuk kursi di belakang meja baris akhir (mejanya +0.34, sandarannya
+  // mencapai +0.55) dan sisa dinding belakang 0.05.
+  const sisaKedalaman = W / 2 - 0.6 - zBaris0;
+  // Kolom: sebanyak yang nyaman di lebar ruangan, tapi ditambah kalau baris
+  // tidak muat — supaya kursi tidak menembus meja di belakangnya.
+  const barisMaks = Math.max(1, Math.floor(sisaKedalaman / MEJA_SISWA.pitchMin) + 1);
+  const colsMuat = Math.max(1, Math.round((L - 2) / 1.35));
+  const colsMaks = Math.max(1, Math.floor((L - 1.6) / 0.92) + 1);
+  const cols = Math.min(colsMaks, Math.max(colsMuat, Math.ceil(desks / barisMaks)));
   const rows = Math.ceil(desks / cols);
+  const pitch = rows > 1 ? Math.min(1.15, sisaKedalaman / (rows - 1)) : 1.15;
+  const pitchX = Math.min(1.35, (L - 1.6) / cols);
   const layout: TitikMeja[] = [];
-  // Baris paling depan maksimal sejajar meja guru, BUKAN bebas menempel
-  // papan tulis: tepi depan meja guru berada di z = −W/2 + 1.15 − 0.275.
-  // Meja siswa tebalnya 0.48 (setengah 0.24), jadi baris pertama dipasang
-  // di −W/2 + 1.15 − 0.035 supaya tepi depannya tepat sejajar meja guru.
-  // Dulu −W/2 + 0.8 → 0.315 m lebih dekat ke papan dari meja guru.
-  const zBaris0 = -W / 2 + 1.115;
-  // Sisa kedalaman ruangan dibagi rata untuk jarak antarbaris, dengan
-  // ruang untuk kursi di belakang meja baris akhir (mejanya +0.34,
-  // sandarannya mencapai +0.55) dan sisa dinding belakang 0.05.
-  const pitch =
-    rows > 1 ? Math.min(1.15, (W / 2 - 0.6 - zBaris0) / (rows - 1)) : 1.15;
   for (let i = 0; i < desks; i++) {
     const [r, c] = [Math.floor(i / cols), i % cols];
-    const x = -L / 2 + 1.1 + c * Math.min(1.35, (L - 1.6) / Math.max(cols, 1));
+    // Deret meja di tengah ruangan (sejajar sumbu x), bukan mepet satu sisi.
+    const x = -((cols - 1) * pitchX) / 2 + c * pitchX;
     const z = zBaris0 + r * pitch;
     layout.push({ x: round(x, 3), z: round(z, 3) });
   }

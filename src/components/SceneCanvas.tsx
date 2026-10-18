@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { Fokus } from "@/lib/model";
+import { MEJA_GURU, posisiMejaGuru } from "@/lib/model";
 import { moodDari, UCAPAN_GURU, UCAPAN_SISWA } from "@/lib/ucapan";
 
 /**
@@ -1151,11 +1152,10 @@ export default function SceneCanvas(props: SceneCanvasProps) {
     });
     // Guru: DUDUK di kursi di belakang mejanya, menghadap kelas (+z).
     // Kwasinya harus sama persis dengan kursi guru yang digambar di blok
-    // "meja guru" (x = gx, z = gz - 0.5, tempat duduk y = 0.49) — kalau
-    // dihitung ulang/freehand, guru melayang di atas lantai atau menembus
-    // sandaran kursi.
-    const GURU_X = L / 2 - 1.15;
-    const GURU_Z = -W / 2 + 1.15 - 0.5;
+    // "meja guru" (x = gx, z = gz - offsetKursi) — kalau dihitung
+    // ulang/freehand, guru melayang di atas lantai atau menembus sandaran.
+    const { x: GURU_X, z: gzGuru } = posisiMejaGuru(L, W);
+    const GURU_Z = gzGuru - MEJA_GURU.offsetKursi;
     const orangGuru: Orang[] = [
       buatOrang({
         x: GURU_X,
@@ -1183,14 +1183,13 @@ export default function SceneCanvas(props: SceneCanvasProps) {
       }
     }
 
-    /* ---------- meja guru ---------- */
+    /* ---------- meja guru (pojok depan, sebaris sendiri) ---------- */
     {
-      const gx = L / 2 - 1.15;
-      const gz = -W / 2 + 1.15;
-      box(scene, 1.1, 0.06, 0.55, gx, 0.78, gz, std(0x63391a, { roughness: 0.55 }));
+      const { x: gx, z: gz } = posisiMejaGuru(L, W);
+      box(scene, MEJA_GURU.lebar, 0.06, MEJA_GURU.dalam, gx, 0.78, gz, std(0x63391a, { roughness: 0.55 }));
       for (const sx of [-0.48, 0.48])
         for (const sz of [-0.21, 0.21]) box(scene, 0.06, 0.75, 0.06, gx + sx, 0.39, gz + sz, legMat);
-      box(scene, 0.46, 0.06, 0.44, gx, 0.47, gz - 0.5, seatMat); // kursi guru menghadap kelas
+      box(scene, 0.46, 0.06, 0.44, gx, 0.47, gz - MEJA_GURU.offsetKursi, seatMat); // kursi guru menghadap kelas
       box(scene, 0.46, 0.5, 0.05, gx, 0.74, gz - 0.71, seatMat);
     }
 
