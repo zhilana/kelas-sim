@@ -46,6 +46,16 @@ interface Orang {
   yBubble: number;
   /** Fase acak untuk animasi "duduk gelisah" saat kelas panas. */
   fase: number;
+  /** Grup kepala (kepala + mata + kopiah/kerudung/rambut) supaya bisa nengok. */
+  kepalaGrup: THREE.Group;
+  /** Dada untuk animasi napas (skala membesar-mengecil). */
+  torso: THREE.Mesh;
+  /** Lengan kanan di bahu; diputar ke atas saat "angkat tangan". */
+  lenganKanan: THREE.Group;
+  /** 0 = tangan di meja, 1 = tangan terangkat penuh. Digerakkan halus di loop. */
+  angkat: number;
+  /** Y dasar duduk tanpa bob animasi. */
+  baseY: number;
 }
 
 interface Refs {
@@ -66,6 +76,16 @@ interface Refs {
   chatNext: number;
   /** Yang sedang bicara sekarang: indeks orang + kapan muncul + kapan hilang. */
   chatAktif: { i: number; dari: number; sampai: number; sk: BubbleSkin }[];
+  /** Posisi & ukuran tiap jendela yang dibangun — dipakai untuk berbagaan. */
+  jendelaInfo: { pos: THREE.Vector3; rotY: number; w: number; h: number }[];
+  /** Material berbagaan matahari; opacity mengikuti hotFactor + fokus. */
+  beamMat?: THREE.MeshBasicMaterial;
+  /** Debu berkilau di dalam berbagaan. */
+  debu?: { pts: THREE.Points; base: Float32Array };
+  /** Buku/pensil di meja yang bergetar mengikuti aliran udara. */
+  kertas: { m: THREE.Mesh; base: THREE.Euler; fase: number }[];
+  /** Jarum jam dinding: menit + jam yang berputar pelan. */
+  jamJarum?: { menit: THREE.Group; jam: THREE.Group };
   camTween: {
     t: number; dur: number;
     fromPos: THREE.Vector3; toPos: THREE.Vector3;
@@ -279,6 +299,8 @@ export default function SceneCanvas(props: SceneCanvasProps) {
       bubbleTex: {},
       chatNext: 0,
       chatAktif: [],
+      jendelaInfo: [],
+      kertas: [],
       camTween: null,
       speedTarget: 1,
       speedCur: 1,
@@ -453,6 +475,8 @@ export default function SceneCanvas(props: SceneCanvasProps) {
       grp.position.copy(pos);
       grp.rotation.y = rotY;
       G.jendela.add(grp);
+      // Dicatat untuk berbagaan matahari: arah sinar tiap jendela berbeda.
+      R.jendelaInfo.push({ pos: pos.clone(), rotY, w, h });
     }
 
     /** Dinding dengan lubang untuk tiap opening + garis aksen bawah. */
@@ -625,6 +649,287 @@ export default function SceneCanvas(props: SceneCanvasProps) {
       scene.add(knob);
     }
 
+    /* ---------- util pilih slot dinding kosong ---------- */
+    /**
+     * Cari titik terluas yang bebas di [lo..hi]: gabungkan semua interval si
+     * jendela/pintu yang sudah ada dan kembalikan titik tengah celah terluas
+     * yang cukup untuk minLebar. Dipakai jam dinding & poster supaya tidak
+     * bertabrakan sama jendela.
+     */
+    function celahTerluas(
+      interval: { c: number; w: number }[],
+      lo: number,
+      hi: number,
+      minLebar: number,
+    ): number | null {
+      const batas = interval
+        .map((i) => [i.c - i.w / 2, i.c + i.w / 2] as [number, number])
+        .sort((a, b) => a[0] - b[0]);
+      const kosong: [number, number][] = [];
+      let kursor = lo;
+      for (const [a, b] of batas) {
+        if (a - kursor >= minLebar) kosong.push([kursor, a]);
+        kursor = Math.max(kursor, b);
+      }
+      if (hi - kursor >= minLebar) kosong.push([kursor, hi]);
+      if (!kosong.length) return null;
+      const terbaik = kosong.reduce((a, b) => (b[1] - b[0] > a[1] - a[0] ? b : a));
+      return (terbaik[0] + terbaik[1]) / 2;
+    }
+
+    /* ---------- berbagaan matahari + debu ---------- */
+    // Seberkas sinar tipis dari tiap jendela ke lantai, mengikuti arah
+    // DirectionalLight yang sudah ditetapkan bareng ditempatkannya jendela.
+    // Dipasang di G.matahari supaya ikut menyala saat fokus "matahari".
+    {
+      const beams: { o: THREE.Vector3; d: THREE.Vector3; len: number; perp: THREE.Vector3; w: number }[] = [];
+      for (const info of R.jendelaInfo) {
+        // arah sinar = dari matahari ke jendela (jatah DirectionalLight)
+        const arah = info.pos.clone().sub(R.sun!.position).normalize();
+        if (arah.y >= -0.06) continue; // matahar terlalu datar → berbagaan heran
+        const len = Math.min(4.8, (info.pos.y - 0.04) / -arah.y);
+        const n = new THREE.Vector3(Math.sin(info.rotY), 0, Math.cos(info.rotY));
+        beams.push({
+          o: info.pos.clone().add(n.multiplyScalar(0.12)),
+          d: arah,
+          len,
+          perp: new THREE.Vector3(-arah.z, 0, arah.x),
+          w: info.w,
+        });
+      }
+
+      /** Gradien putih→transparan sebagai bentuk berbagaan di plane. */
+      function beamTekstur(): THREE.CanvasTexture {
+        const c = document.createElement("canvas");
+        c.width = 16;
+        c.height = 128;
+        const g = c.getContext("2d")!;
+        const grad = g.createLinearGradient(0, 0, 0, 128);
+        // v=0 plane adalah sisi JENDELA (bawah canvas karena flipY), jadi paling terang
+        grad.addColorStop(1, "rgba(255,255,255,0)");
+        grad.addColorStop(0.45, "rgba(255,255,255,0.5)");
+        grad.addColorStop(0, "rgba(255,255,255,1)");
+        g.fillStyle = grad;
+        g.fillRect(0, 0, 16, 128);
+        const tex = new THREE.CanvasTexture(c);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        return tex;
+      }
+
+      R.beamMat = new THREE.MeshBasicMaterial({
+        map: beamTekstur(),
+        color: 0xfff0c8,
+        transparent: true,
+        opacity: 0.16,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
+      for (const b of beams) {
+        const berbagaan = new THREE.Mesh(new THREE.PlaneGeometry(b.w * 0.95, b.len), R.beamMat);
+        // Poros plane (sumbu tinggi +Y) diluruskan mengikuti arah sinar
+        berbagaan.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.d);
+        berbagaan.position.copy(b.o).add(b.d.clone().multiplyScalar(b.len / 2));
+        berbagaan.renderOrder = 4;
+        G.matahari.add(berbagaan);
+      }
+
+      // Debu berkilau: menumpang di jalur berbagaan (atau pindah ke tengah
+      // ruangan kalau tidak ada jendela sama sekali).
+      const nD = 200;
+      const debuPos = new Float32Array(nD * 3);
+      for (let i = 0; i < nD; i++) {
+        if (beams.length) {
+          const b = beams[i % beams.length];
+          const jauh = Math.random() * b.len;
+          const r = (Math.random() - 0.5) * b.w * 0.8;
+          debuPos[i * 3] = b.o.x + b.d.x * jauh + b.perp.x * r + (Math.random() - 0.5) * 0.22;
+          debuPos[i * 3 + 1] = b.o.y + b.d.y * jauh + Math.random() * 0.12;
+          debuPos[i * 3 + 2] = b.o.z + b.d.z * jauh + b.perp.z * r + (Math.random() - 0.5) * 0.22;
+        } else {
+          debuPos[i * 3] = (Math.random() - 0.5) * L * 0.8;
+          debuPos[i * 3 + 1] = 0.4 + Math.random() * (H - 1);
+          debuPos[i * 3 + 2] = (Math.random() - 0.5) * W * 0.8;
+        }
+      }
+      const dg = new THREE.BufferGeometry();
+      dg.setAttribute("position", new THREE.BufferAttribute(debuPos, 3));
+      const debu = new THREE.Points(
+        dg,
+        new THREE.PointsMaterial({
+          color: 0xfff4d8, size: 0.045, transparent: true, opacity: 0.5,
+          blending: THREE.AdditiveBlending, depthWrite: false,
+        }),
+      );
+      G.matahari.add(debu);
+      R.debu = { pts: debu, base: debuPos.slice() };
+    }
+
+    /* ---------- prop kelas: jam, tanaman, lampu, poster ---------- */
+    const DINDING_HIAS: THREE.Object3D[] = [];
+
+    // Jam dinding — jarumnya diangkat dari grup pusat supaya berputar dari
+    // poros jam, bukan dari tengah jarumnya sendiri.
+    {
+      const jendelaBelakang = openingsPerWall.belakang ?? [];
+      const penghalang = [...jendelaBelakang.map((o) => ({ c: o.c, w: o.w + 0.25 }))];
+      if (posisi !== "belakang") penghalang.push({ c: -L / 2 + 0.95, w: 1.2 }); // pintu
+      let slot = celahTerluas(penghalang, -L / 2 + 0.35, L / 2 - 0.35, 0.45);
+      let yaw = Math.PI; // menghadap ruangan (dinding belakang → normal -z)
+      let cx = 0;
+      let cz = W / 2 - 0.075;
+      if (slot === null) {
+        // dinding belakang penuh jendela → pasang di dinding kiri
+        slot = celahTerluas(openingsPerWall.kiri ?? [], -W / 2 + 0.35, W / 2 - 0.35, 0.45) ?? -W * 0.2;
+        yaw = Math.PI / 2; // dinding kiri → normal +x
+        cx = -L / 2 + 0.075;
+        cz = slot;
+      }
+      const jam = new THREE.Group();
+      jam.rotation.y = yaw;
+      jam.position.set(cx, Math.min(1.92, H - 0.46), cz);
+      const bingkai = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.19, 0.19, 0.03, 24),
+        std(0x2f3238, { roughness: 0.45, metalness: 0.3 }),
+      );
+      bingkai.rotation.x = Math.PI / 2;
+      bingkai.position.z = -0.012;
+      jam.add(bingkai);
+      const muka = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.17, 0.17, 0.04, 24),
+        std(0xf7f6f0, { roughness: 0.55 }),
+      );
+      muka.rotation.x = Math.PI / 2;
+      muka.castShadow = true;
+      jam.add(muka);
+      const tickMat = std(0x3a3d44, { roughness: 0.6 });
+      for (let k = 0; k < 12; k++) {
+        const angka = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.028, 0.006), tickMat);
+        const a = (k / 12) * Math.PI * 2;
+        angka.position.set(Math.sin(a) * 0.135, Math.cos(a) * 0.135, 0.021);
+        angka.rotation.z = -a;
+        jam.add(angka);
+      }
+      const pasangJarum = (len: number, lebar: number) => {
+        const g = new THREE.Group();
+        const jarum = new THREE.Mesh(new THREE.BoxGeometry(lebar, len, 0.006), tickMat);
+        jarum.position.y = len / 2; // poros di pusat jam
+        g.add(jarum);
+        g.position.z = 0.028;
+        jam.add(g);
+        return g;
+      };
+      R.jamJarum = { jam: pasangJarum(0.1, 0.014), menit: pasangJarum(0.147, 0.01) };
+      scene.add(jam);
+      DINDING_HIAS.push(jam);
+    }
+
+    // Tanaman pot di dua sudut
+    {
+      const potMat = std(0xa15f30, { roughness: 0.85 });
+      const tanahMat = std(0x3c2f23, { roughness: 0.95 });
+      const daunMacem = [0x15803d, 0x16a34a, 0x14532d];
+      const batangMat = std(0x586b33, { roughness: 0.9 });
+      for (const [tx, tz, sec] of [
+        [-L / 2 + 0.42, -W / 2 + 0.45, 71],
+        [L / 2 - 0.45, W / 2 - 0.45, 173],
+      ] as [number, number, number][]) {
+        const rnd = lcg(sec);
+        const g = new THREE.Group();
+        g.position.set(tx, 0, tz);
+        const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.115, 0.24, 12), potMat);
+        pot.position.y = 0.12;
+        pot.castShadow = true;
+        pot.receiveShadow = true;
+        g.add(pot);
+        const tanah = new THREE.Mesh(
+          new THREE.SphereGeometry(0.125, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2),
+          tanahMat,
+        );
+        tanah.position.y = 0.24;
+        g.add(tanah);
+        const batang = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.02, 0.26, 6), batangMat);
+        batang.position.y = 0.37;
+        batang.castShadow = true;
+        g.add(batang);
+        for (let f = 0; f < 4; f++) {
+          const daun = new THREE.Mesh(
+            new THREE.SphereGeometry(0.1 + rnd() * 0.08, 10, 8),
+            std(daunMacem[Math.floor(rnd() * daunMacem.length)], { roughness: 0.85 }),
+          );
+          daun.position.set((rnd() - 0.5) * 0.24, 0.42 + rnd() * 0.14, (rnd() - 0.5) * 0.24);
+          daun.scale.setScalar(1 + rnd() * 0.25);
+          daun.castShadow = true;
+          g.add(daun);
+        }
+        scene.add(g);
+        DINDING_HIAS.push(g);
+      }
+    }
+
+    // Lampu gantung (dua, menjauh dari sapuan kipas plafon)
+    {
+      const strMat = std(0x2b2e33, { roughness: 0.5, metalness: 0.35 });
+      for (const lx of [-L * 0.16, L * 0.16]) {
+        const g = new THREE.Group();
+        g.position.set(lx, 0, -W * 0.3);
+        const kord = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.62, 6), strMat);
+        kord.position.y = H - 0.31;
+        g.add(kord);
+        const tudung = new THREE.Mesh(
+          new THREE.ConeGeometry(0.15, 0.13, 14, 1, true),
+          std(0x2b2e33, { roughness: 0.5, metalness: 0.3, side: THREE.DoubleSide }),
+        );
+        tudung.position.y = H - 0.64;
+        g.add(tudung);
+        const bohlam = new THREE.Mesh(
+          new THREE.SphereGeometry(0.045, 10, 8),
+          new THREE.MeshStandardMaterial({
+            color: 0xfff2cd, emissive: 0xffdf9e, emissiveIntensity: 0.9, roughness: 0.3,
+          }),
+        );
+        bohlam.position.y = H - 0.66;
+        g.add(bohlam);
+        scene.add(g);
+        DINDING_HIAS.push(g);
+      }
+    }
+
+    // Poster dinding depan (dua, di sisi kiri-kanan papan tulis)
+    {
+      const bwh = Math.min(L * 0.25, 1.6); // setengah zona papan tulis
+      const penghalang = [
+        ...(openingsPerWall.depan ?? []).map((o) => ({ c: o.c, w: o.w + 0.3 })),
+        { c: 0, w: bwh * 2 + 0.6 }, // zona papan tulis
+      ];
+      const slot = celahTerluas(penghalang, -L / 2 + 0.5, L / 2 - 0.5, 1.4);
+      if (slot !== null) {
+        const posterWarna = [0x2563eb, 0x16a34a, 0xf59e0b, 0x7c3aed];
+        let nPoster = 0;
+        for (const off of [-0.75, 0.75]) {
+          const px = Math.min(L / 2 - 0.55, Math.max(-L / 2 + 0.55, slot + off));
+          nPoster = (nPoster + 1) % posterWarna.length;
+          const bingkai = box(
+            scene, 0.62, 0.8, 0.026,
+            px, 1.62, -W / 2 + 0.05,
+            std(posterWarna[nPoster], { roughness: 0.55 }),
+          );
+          bingkai.castShadow = true;
+          const kertas = new THREE.Mesh(
+            new THREE.PlaneGeometry(0.54, 0.72),
+            std(0xf6f2e5, { roughness: 0.9 }),
+          );
+          kertas.position.set(px, 1.62, -W / 2 + 0.074);
+          scene.add(kertas);
+          // dua garis "tulisan" di kertas
+          box(scene, 0.3, 0.045, 0.004, px, 1.78, -W / 2 + 0.082, std(0x94a3b8, { roughness: 0.8 }));
+          box(scene, 0.24, 0.045, 0.004, px - 0.03, 1.66, -W / 2 + 0.082, std(0x94a3b8, { roughness: 0.8 }));
+          DINDING_HIAS.push(kertas);
+        }
+      }
+    }
+
+
     /* ---------- meja & kursi siswa (menghadap papan tulis) ---------- */
     const topMat = std(0xa86423, { roughness: 0.5 });
     glow("siswa", topMat, 0.6);
@@ -632,11 +937,39 @@ export default function SceneCanvas(props: SceneCanvasProps) {
     const seatMat = std(0x474c55, { roughness: 0.55 });
     glow("siswa", seatMat, 0.45);
 
-    function mejaKursi(x: number, z: number, withChair: boolean) {
+    const paperPal: number[] = [0xef4444, 0x3b82f6, 0x22c55e, 0xf59e0b, 0xa855f7, 0x64748b];
+
+    function mejaKursi(x: number, z: number, withChair: boolean, i: number) {
       // meja
       box(scene, 0.66, 0.05, 0.48, x, 0.73, z, topMat);
       for (const sx of [-0.29, 0.29])
         for (const sz of [-0.19, 0.19]) box(scene, 0.05, 0.71, 0.05, x + sx, 0.355, z + sz, legMat);
+      // Buku tulis + pensil di atas meja (permukaan meja y = 0.755).
+      // Warna/rotasi dari LCG ber-seed indeks meja supaya konsisten saat rebuild.
+      const rr = lcg(i * 173 + 41);
+      const bukuA = std(paperPal[Math.floor(rr() * paperPal.length)], { roughness: 0.72 });
+      const bb1 = box(scene, 0.24, 0.024, 0.31, x - 0.09, 0.767, z + 0.01, bukuA);
+      bb1.rotation.y = (rr() - 0.5) * 0.4;
+      if (rr() > 0.35) {
+        // tikar buku kedua bertumpuk — hanya di ~65% meja biar tidak seragam
+        const bukuB = std(paperPal[Math.floor(rr() * paperPal.length)], { roughness: 0.72 });
+        const bb2 = box(scene, 0.21, 0.022, 0.27, x + 0.13, 0.766, z - 0.04, bukuB);
+        bb2.rotation.y = (rr() - 0.5) * 0.55;
+      }
+      if (rr() > 0.5) {
+        // tumpukan kertas putih di atas buku pertama
+        box(scene, 0.17, 0.014, 0.22, x - 0.09, 0.786, z + 0.02, std(0xf6f3ea, { roughness: 0.92 }));
+      }
+      // pensil: silinder tipis tidur di meja; bergetar mengikuti aliran udara
+      const pensil = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.009, 0.009, 0.17, 6),
+        std(0xfbbf24, { roughness: 0.55 }),
+      );
+      pensil.rotation.z = Math.PI / 2;
+      pensil.position.set(x + 0.21, 0.772, z + 0.15);
+      pensil.castShadow = true;
+      scene.add(pensil);
+      R.kertas.push({ m: pensil, base: pensil.rotation.clone(), fase: rr() * 6.28 });
       // kursi di belakang meja (siswa memandang -z ke papan)
       if (!withChair) return;
       const zc = z + 0.34;
@@ -645,14 +978,18 @@ export default function SceneCanvas(props: SceneCanvasProps) {
       for (const sx of [-0.18, 0.18])
         for (const sz of [-0.17, 0.17]) box(scene, 0.04, 0.45, 0.04, x + sx, 0.225, zc + sz, legMat);
     }
-    props.layout.slice(0, props.jumlahMeja).forEach((p, i) => mejaKursi(p.x, p.z, i < props.jumlahKursi));
+    props.layout.slice(0, props.jumlahMeja).forEach((p, i) =>
+      mejaKursi(p.x, p.z, i < props.jumlahKursi, i),
+    );
 
     /* ---------- karakter: siswa + guru (bola sederhana) ---------- */
     // Warna kulit & aksesori diacak DETERMINISTIK (lcg) supaya tidak
     // berganti-ganti setiap scene dibangun ulang.
-    // SKIN sengaja hanya rentang terang→sawo matang; warna terlalu gelap /
-    // kecoklatan membuat kepala siswa terbaca seperti gumpalan di layar kecil.
-    const SKIN = [0xf6dcc2, 0xefcfaa, 0xe5bd93, 0xd9aa7c, 0xcb9666, 0xbf8a5c];
+    // SKIN dipadatkan di rentang tan–sawo (tidak ada nilai sangat terang):
+    // diuji dengan sampel piksel hasil render — nilai lebih terang dari
+    // ~(0xf2d3ae) meledak jadi putih gosong oleh tonemap ACES +
+    // matahari 2.2, dan nilai lebih gelap terbaca seperti gumpalan batu bata.
+    const SKIN = [0xe2b78c, 0xd0a06c, 0xb8814f, 0x9e6a41];
     const BAJU = [0x2f6bd8, 0x1f9d74, 0xc2410c, 0x7c3aed, 0xdb2777, 0x0891b2, 0xca8a04, 0x475569];
     const RAMBUT = [0x1b1410, 0x2e2119, 0x4a3222, 0x0f0c0a];
     const KERUDUNG = [0x9b1c5f, 0x1e4d8c, 0x0f766e, 0x6d28d9, 0x9a3412, 0x374151];
@@ -667,7 +1004,18 @@ export default function SceneCanvas(props: SceneCanvasProps) {
       // Siswa menghadap papan tulis (-z); guru menghadap kelas (+z).
       grup.rotation.y = o.guru ? 0 : Math.PI;
 
-      const skinMat = std(SKIN[Math.floor(rnd() * SKIN.length)], { roughness: 0.85 });
+      // Simpan warna kulit yang dipihak sekali saja; dipakai untuk color DAN
+      // emissive, supaya wajah tidak terlihat putih gosong sementara sisi
+      // gelap kehabisan warna hangat.
+      const warnaKulit = SKIN[Math.floor(rnd() * SKIN.length)];
+      const skinMat = std(warnaKulit, { roughness: 0.78 });
+      // Sisi kepala yang tidak kena matahari berubah abu-biru karena warna
+      // sisi gelap ditarik warna hemisphere langit. Solusi: emissive tipis
+      // memakai warna kulit sendiri supaya sisi gelap tetap terasa kulit.
+      // TIDAK bentrok sistem fokus: skin tidak didaftarkan di glow(), jadi
+      // emissive-nya tidak dipakai siapa pun saat fokus aktif.
+      skinMat.emissive = new THREE.Color(warnaKulit);
+      skinMat.emissiveIntensity = 0.16;
       const bajuMat = std(o.guru ? 0x1e3a8a : BAJU[Math.floor(rnd() * BAJU.length)], {
         roughness: 0.8,
       });
@@ -676,18 +1024,34 @@ export default function SceneCanvas(props: SceneCanvasProps) {
       const torso = new THREE.Mesh(new THREE.SphereGeometry(0.155, 16, 12), bajuMat);
       torso.scale.set(1, 1.25, 0.92);
       torso.position.y = 0.22;
+      // Miring dikit ke depan (arrotasi lokal +z) — gaya duduk menghadap meja.
+      torso.rotation.x = -0.09;
       torso.castShadow = true;
+      grup.add(torso);
 
+      // Kepala dipisah ke grupnya sendiri supaya bisa nengok kiri-kanan
+      // BERSAMA mata dan aksesorisnya. Kalau hanya bola kepala yang diputar,
+      // mata/rambut tetap diam di tempat dan wajahnya jadi kelihatan rusak.
+      const kepalaGrup = new THREE.Group();
+      kepalaGrup.position.y = 0.47;
       const kepala = new THREE.Mesh(new THREE.SphereGeometry(0.108, 16, 12), skinMat);
-      kepala.position.y = 0.47;
       kepala.castShadow = true;
+      kepalaGrup.add(kepala);
 
-      // aksesoris di atas kepala
-      // PENTING: kepala punya radius 0,108 dan pusat y=0,47, jadi puncak
-      // kepala ada di y=0,578. Aksesoris harus DILETAKKAN DI ATAS puncak itu.
-      // Kalau placed di y=0,5, aksesoris menutupi wajah dan karakter jadi
+      // Mata: dua titik gelap di depan wajah (arah local +z).
+      const mataMat = std(0x221d19, { roughness: 0.35 });
+      for (const sx of [-1, 1]) {
+        const mata = new THREE.Mesh(new THREE.SphereGeometry(0.017, 8, 6), mataMat);
+        mata.position.set(0.041 * sx, 0.017, 0.096);
+        kepalaGrup.add(mata);
+      }
+
+      // aksesoris di atas kepala — koordinatnya RELATIF terhadap pusat kepala
+      // PENTING: kepala punya radius 0,108, jadi puncak kepala ada di y=0,108
+      // relatif pusat kepala. Aksesoris harus DIPASANG DI ATAS puncak itu.
+      // Kalau dipasang di y=0, aksesoris menutupi wajah dan karakter jadi
       // seperti gumpalan tanpa muka.
-      const PUNCAK = 0.578;
+      const PUNCAK = 0.108; // relatif pusat kepala (= 0.578 absolut)
       if (o.guru) {
         // kopiah: kubah + pinggiran pipih, duduk rapi di atas kepala
         const kubah = new THREE.Mesh(
@@ -702,28 +1066,54 @@ export default function SceneCanvas(props: SceneCanvasProps) {
         );
         pinggiran.position.y = PUNCAK + 0.012;
         pinggiran.castShadow = true;
-        grup.add(kubah, pinggiran);
+        kepalaGrup.add(kubah, pinggiran);
       } else if (rnd() < 0.34) {
         // kerudung: menutupi seluruh kepala dan sedikit menjulur ke bawah
         const kerudungMat = std(KERUDUNG[Math.floor(rnd() * KERUDUNG.length)], { roughness: 0.9 });
         const k = new THREE.Mesh(new THREE.SphereGeometry(0.131, 18, 14), kerudungMat);
         k.scale.set(1, 1.14, 1);
-        k.position.y = 0.468;
+        k.position.y = -0.002;
         k.castShadow = true;
-        grup.add(k);
+        kepalaGrup.add(k);
       } else {
-        // rambut: setengah bola di puncak kepala,wajahnya dibiarkan terlihat
+        // rambut: setengah bola di puncak kepala; wajahnya dibiarkan terlihat
         const r = new THREE.Mesh(
           new THREE.SphereGeometry(0.114, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.44),
           rambutMat,
         );
-        r.position.y = 0.474;
+        r.position.y = 0.004;
         r.rotation.x = -0.1;
         r.castShadow = true;
-        grup.add(r);
+        kepalaGrup.add(r);
+        // 20% dari anak rambut dapat ikat kepala/buntut di belakang kepala
+        if (rnd() < 0.2) {
+          const buntut = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8), rambutMat);
+          buntut.position.set(0, 0.06, -0.11);
+          buntut.castShadow = true;
+          kepalaGrup.add(buntut);
+        }
       }
+      grup.add(kepalaGrup);
 
-      grup.add(torso, kepala);
+      // Lengan kanan: grup di bahu + bola lengan di ujungnya. Grupnya yang
+      // diputar (bukan bola) supaya rotasi "angkat tangan" tetap berporos
+      // di bahu, bukan di tengah lengan.
+      const lenganKanan = new THREE.Group();
+      lenganKanan.position.set(0.165, 0.335, 0.02);
+      const tangan = new THREE.Mesh(new THREE.SphereGeometry(0.052, 10, 8), bajuMat);
+      tangan.position.set(0, -0.1, 0.05);
+      tangan.castShadow = true;
+      lenganKanan.add(tangan);
+      grup.add(lenganKanan);
+
+      // Lengan kiri: hanya penyeimbang visual, tidak ikut diangkat.
+      const lenganKiri = new THREE.Group();
+      lenganKiri.position.set(-0.165, 0.335, 0.02);
+      const tanganKiri = new THREE.Mesh(new THREE.SphereGeometry(0.052, 10, 8), bajuMat);
+      tanganKiri.position.set(0, -0.1, 0.05);
+      tanganKiri.castShadow = true;
+      lenganKiri.add(tanganKiri);
+      grup.add(lenganKiri);
 
       // bubble chat: sprite kecil dulu, disembunyikan sampai giliran bicara
       const sk = new THREE.Sprite(
@@ -742,6 +1132,11 @@ export default function SceneCanvas(props: SceneCanvasProps) {
         skin: sk,
         yBubble: 0.78,
         fase: rnd() * Math.PI * 2,
+        kepalaGrup,
+        torso,
+        lenganKanan,
+        angkat: 0,
+        baseY: o.yDuduk,
       };
     }
 
@@ -1003,16 +1398,59 @@ export default function SceneCanvas(props: SceneCanvasProps) {
         o.skin.visible = op > 0.01;
       }
 
-      // Gerak gelisah saat kelas panas: siswa bergoyang kecil.
-      const gelisah = mood === "panas" ? 1 : 0;
-      for (const o of R.orang) {
-        if (o.guru) {
-          // guru tetap tenang, hanya mengangguk pelan
-          o.grup.rotation.z = Math.sin(t * 1.4 + o.fase) * 0.012;
-          o.grup.position.y = o.grup.position.y; // tidak ada gerak vertikal
-          continue;
+      /* ---------- animasi karakter: napas, nengok, angkat tangan ---------- */
+      // gelisah: panas paling ramai, dingin sekedat, nyaman tenang
+      const gelisah = mood === "panas" ? 1 : mood === "dingin" ? 0.45 : 0;
+      const bicara = new Set(R.chatAktif.map((c) => c.i));
+      for (const [idx, o] of R.orang.entries()) {
+        // goyangan gelisah; badan guru hanya setengahnya (tetap tenang)
+        o.grup.rotation.z = Math.sin(t * (2.4 + gelisah * 1.7) + o.fase) * (o.guru ? 0.008 : 0.018 * (1 + gelisah * 2.2));
+        // bob duduk halus (tidak sampai melayang)
+        o.grup.position.y = o.baseY + Math.sin(t * 1.7 + o.fase) * 0.008;
+        // napas: dada membesar-mengecil halus
+        o.torso.scale.y = 1.25 * (1 + 0.02 * Math.sin(t * 1.9 + o.fase));
+        // nengok kiri-kanan; saat kelas panas sering melirik ke arah jendela
+        o.kepalaGrup.rotation.y = Math.sin(t * (0.55 + gelisah * 0.5) + o.fase) * (o.guru ? 0.5 : 0.3 + gelisah * 0.15);
+        // angkat tangan: siswa yang sedang ngeluh (bubble) atau diam-diam
+        // minta izin buka jendela saat kelas panas/dingin (fraksi konsisten
+        // dari fase, jadi bukan acak tiap frame).
+        let targetAngkat = 0;
+        if (!o.guru && mood !== "nyaman" && (bicara.has(idx) || o.fase % 1 < 0.28)) {
+          targetAngkat = 1;
         }
-        o.grup.rotation.z = Math.sin(t * (2.4 + gelisah * 1.6) + o.fase) * 0.02 * (1 + gelisah * 2.2);
+        o.angkat += (targetAngkat - o.angkat) * Math.min(1, dt * 5);
+        // -2.25 rad = bola lengan mengayun naik ke depan kepala
+        o.lenganKanan.rotation.x = -2.25 * o.angkat + Math.sin(t * 2.9 + o.fase) * 0.15 * o.angkat;
+        o.lenganKanan.rotation.z = 0.3 * o.angkat;
+      }
+
+      // pensil di meja bergetar mengikuti aliran udara
+      for (const k of R.kertas) {
+        k.m.rotation.z = k.base.z + Math.sin(t * (1.1 + R.speedCur * 0.7) + k.fase) * 0.05 * (0.2 + debit);
+      }
+
+      // berbagaan matahari: makin terik (hotFactor) makin jelas berkasnya
+      if (R.beamMat) {
+        const boost = fk === "matahari" ? 2.2 : 1;
+        const dasar = 0.1 + live.current.hotFactor * 0.13;
+        R.beamMat.opacity += (dasar * boost - R.beamMat.opacity) * Math.min(1, dt * 5);
+      }
+
+      // jarum jam berputar pelan (menit ~12 detik sekali diputar, biar terlihat)
+      if (R.jamJarum) {
+        R.jamJarum.menit.rotation.z -= dt * 0.55;
+        R.jamJarum.jam.rotation.z -= dt * 0.06;
+      }
+
+      // debu melayang halus di dalam berbagaan
+      if (R.debu) {
+        const dArr = R.debu.pts.geometry.attributes.position.array as Float32Array;
+        for (let i = 0; i < dArr.length; i += 3) {
+          dArr[i] = R.debu.base[i] + Math.sin(t * 0.35 + i * 0.7) * 0.05;
+          dArr[i + 1] = R.debu.base[i + 1] + Math.sin(t * 0.5 + i * 0.31) * 0.06;
+          dArr[i + 2] = R.debu.base[i + 2] + Math.cos(t * 0.28 + i * 0.53) * 0.05;
+        }
+        R.debu.pts.geometry.attributes.position.needsUpdate = true;
       }
 
       // pulsa material sesuai fokus
@@ -1102,26 +1540,45 @@ export default function SceneCanvas(props: SceneCanvasProps) {
           Math.abs(R.camera.position.z) < W / 2 &&
           R.camera.position.y >= H),
       plafonTampil: ceil.visible,
-      // Bukti bahwa aksesoris benar-benar DI ATAS kepala (bukan menutupi muka).
+      // Bukti aksesoris tidak menutupi muka: daftar anak grup kepala beserta
+      // posisi relative-nya (pusat kepala = y 0; puncak kepala = y 0,108).
       karakter: R.orang.slice(0, 4).map((o) => {
-        const anak = o.grup.children as THREE.Mesh[];
-        // Klasifikasi: kepala (bola r=0,108 di y=0,47), torso (bola di y=0,22),
-        // dan sprite bubble (BufferGeometry) BUKAN bagian aksesoris.
-        const isSphere = (m: THREE.Mesh) => m.geometry?.type === "SphereGeometry";
-        const kepala = anak.find((m) => isSphere(m) && Math.abs(m.position.y - 0.47) < 0.001);
-        const aksesoris = anak.filter(
-          (m) => isSphere(m) && Math.abs(m.position.y - 0.22) > 0.001 && m !== kepala,
+        const isi = o.kepalaGrup.children as THREE.Mesh[];
+        const radiusGeometri = (m: THREE.Mesh) =>
+          (m.geometry as THREE.SphereGeometry).parameters?.radius ?? 0;
+        const acesoris = isi.filter(
+          (m) => m.geometry?.type === "SphereGeometry" && radiusGeometri(m) > 0.02,
         );
         return {
           guru: o.guru,
-          jumlahAnak: o.grup.children.length,
-          // y lokal tiap anak: aksesoris > 0,5 = di atas kepala
-          semuaAnak: anak.map(
+          // juda: sphere@0 = kepala, sphere kecil@0.017 = mata, sprite = bubble
+          isiKepala: (o.kepalaGrup.children as THREE.Mesh[]).map(
             (m) => `${m.geometry?.type}@${Math.round(m.position.y * 1000) / 1000}`,
           ),
-          kepalaAda: !!kepala,
-          aksesorisTipe: aksesoris.map((a) => a.geometry?.type),
-          aksesorisY: aksesoris.map((a) => Math.round(a.position.y * 1000) / 1000),
+          aksesoriY: acesoris.map((a) => Math.round(a.position.y * 1000) / 1000),
+          puncakKepala: 0.108,
+          nengokRad: Math.round(o.kepalaGrup.rotation.y * 100) / 100,
+          angkat: Math.round(o.angkat * 1000) / 1000,
+        };
+      }),
+      // prop & efek baru
+      berbagaan: G.matahari.children.filter((c) => c instanceof THREE.Mesh).length,
+      debu: R.debu ? R.debu.pts.geometry.attributes.position.count : 0,
+      kertas: R.kertas.length,
+      jamAda: !!R.jamJarum,
+      prop: DINDING_HIAS.length,
+      // Proyeksi pusat kepala tiap orang ke layar (px) — dipakai tes untuk
+      // menyocok warna kulit yang benar-benar RENDERED, bukan warna materialnya.
+      sampelKulit: R.orang.map((o) => {
+        const v = o.kepalaGrup.getWorldPosition(new THREE.Vector3());
+        v.project(R.camera);
+        const d = R.renderer.domElement;
+        return {
+          guru: o.guru,
+          x: Math.round(v.x * 0.5 * d.width + d.width / 2),
+          y: Math.round(-v.y * 0.5 * d.height + d.height / 2),
+          // posisi tertutup (di belakang kamera) ditandai supaya tes bisa abaikan
+          tampil: v.z < 1 && v.x > -1.1 && v.x < 1.1 && v.y > -1.1 && v.y < 1.1,
         };
       }),
     });
