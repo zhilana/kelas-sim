@@ -46,7 +46,7 @@ interface Orang {
   yBubble: number;
   /** Fase acak untuk animasi "duduk gelisah" saat kelas panas. */
   fase: number;
-  /** Grup kepala (kepala + mata + kopiah/kerudung/rambut) supaya bisa nengok. */
+  /** Grup kepala (kepala + mata + kopiah/rambut) supaya bisa nengok. */
   kepalaGrup: THREE.Group;
   /** Dada untuk animasi napas (skala membesar-mengecil). */
   torso: THREE.Mesh;
@@ -992,7 +992,6 @@ export default function SceneCanvas(props: SceneCanvasProps) {
     const SKIN = [0xe2b78c, 0xd0a06c, 0xb8814f, 0x9e6a41];
     const BAJU = [0x2f6bd8, 0x1f9d74, 0xc2410c, 0x7c3aed, 0xdb2777, 0x0891b2, 0xca8a04, 0x475569];
     const RAMBUT = [0x1b1410, 0x2e2119, 0x4a3222, 0x0f0c0a];
-    const KERUDUNG = [0x9b1c5f, 0x1e4d8c, 0x0f766e, 0x6d28d9, 0x9a3412, 0x374151];
 
     /** Bikin satu karakter dan kembalikan grupnya. */
     function buatOrang(o: {
@@ -1067,14 +1066,6 @@ export default function SceneCanvas(props: SceneCanvasProps) {
         pinggiran.position.y = PUNCAK + 0.012;
         pinggiran.castShadow = true;
         kepalaGrup.add(kubah, pinggiran);
-      } else if (rnd() < 0.34) {
-        // kerudung: menutupi seluruh kepala dan sedikit menjulur ke bawah
-        const kerudungMat = std(KERUDUNG[Math.floor(rnd() * KERUDUNG.length)], { roughness: 0.9 });
-        const k = new THREE.Mesh(new THREE.SphereGeometry(0.131, 18, 14), kerudungMat);
-        k.scale.set(1, 1.14, 1);
-        k.position.y = -0.002;
-        k.castShadow = true;
-        kepalaGrup.add(k);
       } else {
         // rambut: setengah bola di puncak kepala; wajahnya dibiarkan terlihat
         const r = new THREE.Mesh(
