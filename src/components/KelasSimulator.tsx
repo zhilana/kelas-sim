@@ -142,7 +142,7 @@ function AnimNum({ value, dec = 0 }: { value: number; dec?: number }) {
 
 /* ============================ aplikasi ============================ */
 
-export default function KelasSimulator() {
+export default function KelasSimulator({ onHome }: { onHome?: () => void } = {}) {
   const [stage, setStage] = useState<"input" | "hasil">("input");
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const [langkahAktif, setLangkahAktif] = useState(-1);
@@ -175,7 +175,18 @@ export default function KelasSimulator() {
       <main className="anim-stage mx-auto flex min-h-screen w-full max-w-5xl flex-col justify-center gap-10 px-5 py-14 sm:px-8">
         {/* ---------- kepala ---------- */}
         <header className="flex items-baseline justify-between">
-          <span className="text-sm font-semibold">Kelas-Sim</span>
+          <span className="flex items-center gap-3">
+            {onHome && (
+              <button
+                type="button"
+                onClick={onHome}
+                className="rounded-lg border border-line bg-panel px-3 py-1.5 text-[11px] font-medium text-muted transition-colors hover:border-line-strong hover:text-ink"
+              >
+                ← Menu
+              </button>
+            )}
+            <span className="text-sm font-semibold">Kelas-Sim</span>
+          </span>
           <span className="hidden text-xs text-muted sm:inline">Simulasi fisika untuk siswa SMA</span>
         </header>
 
@@ -349,6 +360,14 @@ export default function KelasSimulator() {
         >
           ← Ubah input
         </button>
+        {onHome && (
+          <button
+            onClick={onHome}
+            className="rounded-lg border border-line bg-panel px-4 py-2 text-xs font-medium text-muted transition-colors hover:border-line-strong hover:text-ink"
+          >
+            ← Menu
+          </button>
+        )}
         <span className="hidden text-xs text-muted md:inline">
           Ruangan {data.input.panjang}×{data.input.lebar}×{data.input.tinggi} m ·{" "}
           {data.input.jumlahSiswa} siswa · {data.input.jumlahJendela} jendela{" "}

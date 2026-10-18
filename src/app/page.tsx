@@ -1,5 +1,5 @@
-import KelasSimulator from "@/components/KelasSimulator";
+import AppShell from "@/components/AppShell";
 
 export default function Home() {
-  return <KelasSimulator />;
+  return <AppShell />;
 }

@@ -4,10 +4,9 @@
    Warm monochrome + satu aksen biru. Flat, tanpa scanline/CRT,
    radius konsisten 8px, shadow nyaris tidak ada. */
 @theme {
-  /* Font: Excalifont (handwriting) sebagai sans-serif default proyek.
-     --font-excalifont.inflateksikan daftar fallback tulisan tangan dari
-     next/font/local, jadi cukup ditambah tail generik. */
-  --font-sans: var(--font-excalifont), ui-sans-serif, system-ui, sans-serif;
+  /* Font: Plus Jakarta Sans (sans-serif geometris) sebagai default proyek.
+     --font-jakarta berasal dari next/font/local di layout.tsx. */
+  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
 
   --color-canvas: #fafaf8;
   --color-panel: #ffffff;
