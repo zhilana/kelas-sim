@@ -655,13 +655,15 @@ export default function SceneCanvas(props: SceneCanvasProps) {
      * jendela/pintu yang sudah ada dan kembalikan titik tengah celah terluas
      * yang cukup untuk minLebar. Dipakai jam dinding & poster supaya tidak
      * bertabrakan sama jendela.
+     * Balikin TITIK TENGAH + LEBAR celahnya: lebar berguna untuk prop yang
+     * butuh memakai seluruh celah (poster dua sisi), bukan cuma titiknya.
      */
     function celahTerluas(
       interval: { c: number; w: number }[],
       lo: number,
       hi: number,
       minLebar: number,
-    ): number | null {
+    ): { c: number; w: number } | null {
       const batas = interval
         .map((i) => [i.c - i.w / 2, i.c + i.w / 2] as [number, number])
         .sort((a, b) => a[0] - b[0]);
@@ -674,7 +676,7 @@ export default function SceneCanvas(props: SceneCanvasProps) {
       if (hi - kursor >= minLebar) kosong.push([kursor, hi]);
       if (!kosong.length) return null;
       const terbaik = kosong.reduce((a, b) => (b[1] - b[0] > a[1] - a[0] ? b : a));
-      return (terbaik[0] + terbaik[1]) / 2;
+      return { c: (terbaik[0] + terbaik[1]) / 2, w: terbaik[1] - terbaik[0] };
     }
 
     /* ---------- berbagaan matahari + debu ---------- */
@@ -780,10 +782,12 @@ export default function SceneCanvas(props: SceneCanvasProps) {
       let cz = W / 2 - 0.075;
       if (slot === null) {
         // dinding belakang penuh jendela → pasang di dinding kiri
-        slot = celahTerluas(openingsPerWall.kiri ?? [], -W / 2 + 0.35, W / 2 - 0.35, 0.45) ?? -W * 0.2;
+        slot =
+          celahTerluas(openingsPerWall.kiri ?? [], -W / 2 + 0.35, W / 2 - 0.35, 0.45) ??
+          { c: -W * 0.2, w: 0 };
         yaw = Math.PI / 2; // dinding kiri → normal +x
         cx = -L / 2 + 0.075;
-        cz = slot;
+        cz = slot.c;
       }
       const jam = new THREE.Group();
       jam.rotation.y = yaw;
@@ -902,12 +906,19 @@ export default function SceneCanvas(props: SceneCanvasProps) {
         ...(openingsPerWall.depan ?? []).map((o) => ({ c: o.c, w: o.w + 0.3 })),
         { c: 0, w: bwh * 2 + 0.6 }, // zona papan tulis
       ];
-      const slot = celahTerluas(penghalang, -L / 2 + 0.5, L / 2 - 0.5, 1.4);
-      if (slot !== null) {
+      const slot = celahTerluas(penghalang, -L / 2 + 0.45, L / 2 - 0.45, 1.2);
+      if (slot) {
         const posterWarna = [0x2563eb, 0x16a34a, 0xf59e0b, 0x7c3aed];
+        // Posisi poster dihitung dari TEPI celah, bukan pusatnya. Dulu
+        // dipasang di ±0.75 dari pusat celah padahal celahnya cuma dijamin
+        // 1,4 m — poster sisi kanan (kerangkanya kebetulan kuning) meluncur
+        // 0,3 m ke zona papan tulis dan menembus mesh papan. Sekarang: dua
+        // poster hanya bila celah lega (≥ 1,9 m); celah 1,2–1,9 m cukup
+        // diisi satu poster di tengah.
+        const offsets = slot.w >= 1.9 ? [-slot.w / 2 + 0.5, slot.w / 2 - 0.5] : [0];
         let nPoster = 0;
-        for (const off of [-0.75, 0.75]) {
-          const px = Math.min(L / 2 - 0.55, Math.max(-L / 2 + 0.55, slot + off));
+        for (const off of offsets) {
+          const px = slot.c + off;
           nPoster = (nPoster + 1) % posterWarna.length;
           const bingkai = box(
             scene, 0.62, 0.8, 0.026,
@@ -1558,6 +1569,13 @@ export default function SceneCanvas(props: SceneCanvasProps) {
       kertas: R.kertas.length,
       jamAda: !!R.jamJarum,
       prop: DINDING_HIAS.length,
+      // posisi-x kertas poster dinding depan — dipakai pengetesan supaya
+      // poster bisa jauh di luar zona papan tulis, bukan dikira-kira
+      posterX: DINDING_HIAS.flatMap((m) =>
+        m instanceof THREE.Mesh && Math.abs(m.position.z + W / 2 - 0.074) < 0.012
+          ? [Math.round(m.position.x * 100) / 100]
+          : [],
+      ),
       // Proyeksi pusat kepala tiap orang ke layar (px) — dipakai tes untuk
       // menyocok warna kulit yang benar-benar RENDERED, bukan warna materialnya.
       sampelKulit: R.orang.map((o) => {
