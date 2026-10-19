@@ -2,26 +2,30 @@
 
 import { useState } from "react";
 import dynamic from "next/dynamic";
+import { kata, useReveal } from "./animasi";
 import { BAHAN, cariBahan } from "@/lib/bahan";
+import { usePindah } from "@/lib/navigasi";
 
 const MiniStage = dynamic(() => import("./MiniStage"), { ssr: false });
 
-export default function BahanBangunan({ onHome }: { onHome: () => void }) {
+export default function BahanBangunan() {
+  const keMenu = usePindah();
   const [id, setId] = useState("bata_merah");
   const b = cariBahan(id);
+  const akar = useReveal<HTMLElement>();
 
   return (
-    <main className="anim-stage mx-auto flex min-h-screen w-full max-w-[1400px] flex-col gap-5 px-4 py-6 sm:px-6 sm:py-10">
+    <main ref={akar} className="anim-stage mx-auto flex min-h-screen w-full max-w-[1400px] flex-col gap-5 px-4 py-6 sm:px-6 sm:py-10">
       <header className="flex flex-wrap items-center gap-3">
         <button
-          onClick={onHome}
+          onClick={() => keMenu("menu")}
           className="rounded-lg border border-line bg-panel px-3.5 py-2 text-xs font-medium text-muted transition-colors hover:border-line-strong hover:text-ink"
         >
           ← Menu
         </button>
         <div>
-          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Bahan Bangunan</h1>
-          <p className="text-xs text-muted">Klik satu bahan — model 3D-nya muncul di sebelah kanan.</p>
+          <h1 className="t-title">{kata({ children: "Bahan Bangunan" })}</h1>
+          <p className="text-xs text-muted" data-reveal>Klik satu bahan — model 3D-nya muncul di sebelah kanan.</p>
         </div>
         <span className="ml-auto hidden rounded-full border border-line px-3 py-1 text-[11px] text-muted sm:block">
           {BAHAN.length} bahan
@@ -41,8 +45,8 @@ export default function BahanBangunan({ onHome }: { onHome: () => void }) {
                   onClick={() => setId(it.id)}
                   className={`flex min-w-[190px] items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-all duration-200 lg:min-w-0 ${
                     aktif
-                      ? "border-accent bg-accent-soft shadow-soft"
-                      : "border-line bg-panel hover:border-line-strong"
+                      ? "border-accent bg-accent-soft shadow-card"
+                      : "border-line bg-panel hover:-translate-y-0.5 hover:border-line-strong hover:shadow-card"
                   }`}
                 >
                   <span
@@ -61,8 +65,8 @@ export default function BahanBangunan({ onHome }: { onHome: () => void }) {
         </aside>
 
         {/* ------------------------------ panggung ----------------------------- */}
-        <section className="flex min-w-0 flex-col gap-4">
-          <div className="relative h-[300px] overflow-hidden rounded-xl border border-line bg-panel sm:h-[380px]">
+        <section className="flex min-w-0 flex-col gap-4" data-reveal>
+          <div className="relative h-[300px] overflow-hidden rounded-2xl border border-line bg-panel shadow-card sm:h-[380px]">
             <div
               className="pointer-events-none absolute inset-0"
               style={{
@@ -72,7 +76,7 @@ export default function BahanBangunan({ onHome }: { onHome: () => void }) {
             />
             <MiniStage id={b.id} className="absolute inset-0" />
             <div className="pointer-events-none absolute left-4 top-4">
-              <p className="text-[11px] font-medium uppercase tracking-wider text-muted">{b.kategori}</p>
+              <p className="t-kicker">{b.kategori}</p>
               <h2 className="text-2xl font-bold tracking-tight">{b.nama}</h2>
             </div>
             <div className="pointer-events-none absolute bottom-4 left-4 right-4 flex flex-wrap items-center gap-2">
@@ -91,7 +95,7 @@ export default function BahanBangunan({ onHome }: { onHome: () => void }) {
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <div className="rounded-xl border border-line bg-panel p-4">
+            <div className="rounded-2xl border border-line bg-panel p-4 shadow-card">
               <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-muted">Deskripsi</p>
               <p className="text-[13px] leading-relaxed text-muted">{b.deskripsi}</p>
               <p className="mt-3 border-t border-line pt-3 text-[12.5px] leading-relaxed">{b.ringkas}</p>

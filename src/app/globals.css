@@ -34,18 +34,35 @@
   /* alias lama yang masih dipakai komponen */
   --color-night: #ffffff;
   --color-panel2: #f3f3ef;
+  /* ---- skala termal: dipakai sebagai warna data, bukan hiasan ----
+     dingin → nyaman → hangat → panas. Angka suhu, gauge, dan chip status
+     semuanya memakai skala ini supaya artinya konsisten. */
+  --color-cool: #2f6fd0;
+  --color-cool-soft: #e8f0fc;
+  --color-comfy: #12805a;
+  --color-comfy-soft: #e6f4ee;
+  --color-warm: #b45309;
+  --color-warm-soft: #fdf1e3;
+  --color-hot: #cf3b2b;
+  --color-hot-soft: #fdeae6;
   /* Shadow: di dark mode hampir tak terlihat, jadi dinaikkan. */
   --shadow-soft: 0 2px 10px rgb(0 0 0 / 0.04);
   --shadow-float: 0 2px 10px rgb(0 0 0 / 0.05);
+  /* Elevasi kartu: hairline + bayangan panjang yang lembut, supaya panel
+     punya kedalaman tanpa garis tebal di mana-mana. */
+  --shadow-card: 0 1px 2px rgb(28 25 20 / 0.04), 0 18px 40px -28px rgb(28 25 20 / 0.35);
+  --shadow-lift: 0 2px 6px rgb(28 25 20 / 0.06), 0 28px 56px -28px rgb(28 25 20 / 0.4);
 }
 
-/* ====== DARK MODE — mengikuti sistem device =====
+/* ====== DARK MODE — atribut data-theme di <html> =====
+   Tema kini bisa dipilih manual (ThemeToggle) dan tetap disimpan di
+   localStorage. Skrip kecil di layout.tsx memasang data-theme SEBELUM
+   render pertama (default mengikuti prefers-color-sistem saat belum
+   pernah dipilih), jadi tidak ada kilatan tema salah saat load.
    Tailwind v4 memetakan utility warna ke var() di @theme, jadi cukup
    menimpa variabelnya di sini: bg-panel/text-ink/dsb ikut berubah tanpa
-   menyentuh komponen. Pilih media query (bukan .dark class) supaya otomatis
-   ikut gerbangalam light/dark dan tanpa JS — tidak ada flash saat load. */
-@media (prefers-color-scheme: dark) {
-  :root {
+   menyentuh komponen. */
+[data-theme="dark"] {
     --color-canvas: #141513;
     --color-panel: #1c1e1b;
     --color-panel2: #242724;
@@ -64,22 +81,33 @@
     --color-good-ink: #4ade80;
     --color-bad-ink: #f87171;
     --color-night: #1c1e1b;
+    --color-cool: #7cb0ff;
+    --color-cool-soft: #16233a;
+    --color-comfy: #4ade80;
+    --color-comfy-soft: #16301f;
+    --color-warm: #f0b429;
+    --color-warm-soft: #33280f;
+    --color-hot: #f87171;
+    --color-hot-soft: #3a1a17;
     --shadow-soft: 0 2px 12px rgb(0 0 0 / 0.5);
     --shadow-float: 0 2px 12px rgb(0 0 0 / 0.55);
-  }
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.45), 0 18px 40px -28px rgb(0 0 0 / 0.8);
+    --shadow-lift: 0 2px 8px rgb(0 0 0 / 0.5), 0 28px 56px -28px rgb(0 0 0 / 0.85);
   /* also tell the browser to render native widgets (scrollbar, select,
      range track) in dark — without this they stay light. */
   color-scheme: dark;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color-scheme: light;
-  }
-}
-
 body {
-  background: var(--color-canvas);
+  background-color: var(--color-canvas);
+  /* Atmosfer tipis: dua cahaya (biru di kanan-atas, hangat di kiri-bawah)
+     supaya bidang tidak terasa rata seperti kertas kosong. Sangat lembut —
+     tidak boleh menyaingi konten. */
+  background-image:
+    radial-gradient(58% 46% at 92% -10%, color-mix(in srgb, var(--color-accent) 10%, transparent), transparent 72%),
+    radial-gradient(52% 42% at -12% 108%, color-mix(in srgb, var(--color-warm) 9%, transparent), transparent 72%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
   color: var(--color-ink);
   font-family: var(--font-sans);
   /* Transisi halus ketika sistem device berganti light<->dark saat aplikasi
@@ -128,14 +156,14 @@ html {
   animation: riseIn 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-.stagger > * {
+.stagger:not([data-gsap]) > * {
   animation: riseIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
-.stagger > :nth-child(1) { animation-delay: 0.03s; }
-.stagger > :nth-child(2) { animation-delay: 0.08s; }
-.stagger > :nth-child(3) { animation-delay: 0.13s; }
-.stagger > :nth-child(4) { animation-delay: 0.18s; }
-.stagger > :nth-child(5) { animation-delay: 0.23s; }
+.stagger:not([data-gsap]) > :nth-child(1) { animation-delay: 0.03s; }
+.stagger:not([data-gsap]) > :nth-child(2) { animation-delay: 0.08s; }
+.stagger:not([data-gsap]) > :nth-child(3) { animation-delay: 0.13s; }
+.stagger:not([data-gsap]) > :nth-child(4) { animation-delay: 0.18s; }
+.stagger:not([data-gsap]) > :nth-child(5) { animation-delay: 0.23s; }
 
 /* ====== transisi antar halaman (View Transitions API) ====== */
 ::view-transition-old(root) {
@@ -245,4 +273,31 @@ details.sec[open] > summary::after {
 
 .katex {
   font-size: 1.06em;
+}
+
+/* ====== tipografi responsif ======
+   Skala kecil yang dipakai lintas layar supaya nilai display, judul, dan
+   kicker konsisten: clamp() mengikuti lebar layar tanpa media query,
+   tracking negatif tipis hanya untuk display besar, dan text-wrap balance
+   menjaga judul Indonesia tidak "janda" satu kata. */
+.t-display {
+  font-size: clamp(30px, 4.6vw, 56px);
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  font-weight: 800;
+  text-wrap: balance;
+}
+.t-title {
+  font-size: clamp(20px, 2.4vw, 28px);
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+  font-weight: 700;
+  text-wrap: balance;
+}
+.t-kicker {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--color-muted);
 }

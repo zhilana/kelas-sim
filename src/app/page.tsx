@@ -1,5 +1,6 @@
-import AppShell from "@/components/AppShell";
+import { redirect } from "next/navigation";
 
+/** Rut aplikasi: /menu, /simulasi, /kalkulator, /bahan. Root lempar ke menu. */
 export default function Home() {
-  return <AppShell />;
+  redirect("/menu");
 }

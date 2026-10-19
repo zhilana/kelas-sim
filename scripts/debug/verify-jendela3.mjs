@@ -1,0 +1,23 @@
+import { chromium } from "playwright";
+const b = await chromium.launch();
+const p = await b.newPage({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
+p.on("pageerror", (e) => console.log("[pageerror]", String(e).slice(0, 200)));
+await p.goto("http://localhost:3017/simulasi", { waitUntil: "networkidle" });
+await p.waitForTimeout(2000);
+await p.getByRole("button", { name: "Edit input" }).click();
+await p.waitForTimeout(500);
+await p.locator("aside").getByRole("button", { name: "Depan" }).last().click();
+await p.waitForTimeout(1000);
+const info = await p.evaluate(() => {
+  const ws = [...document.querySelectorAll("[data-denah-jendela]")];
+  const boardLine = document.querySelector("svg[role='img'] line");
+  const l = boardLine.getBoundingClientRect();
+  const wsx = ws.map((m) => m.getBoundingClientRect().x);
+  const dalamBoard = wsx.filter((x) => x > l.x && x < l.right).length;
+  return { sisi: ws.map((m) => m.getAttribute("data-jendela-sisi")).join(","), x: wsx.map((x) => Math.round(x)), boardX: [Math.round(l.x), Math.round(l.right)], dalamBoard };
+});
+console.log(JSON.stringify(info), "| jendela menabrak papan:", info.dalamBoard);
+await p.screenshot({ path: "/home/jeli/.hermes/cache/scratch/jend-depan.png" });
+await p.close();
+await b.close();
+console.log("ok");

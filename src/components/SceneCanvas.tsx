@@ -3,8 +3,9 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import type { Fokus } from "@/lib/model";
-import { MEJA_GURU, posisiMejaGuru } from "@/lib/model";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+import type { Fokus, JendelaUnit, PosisiPintu, TitikMeja } from "@/lib/model";
+import { MEJA_GURU, panjangDinding, posisiMejaGuru } from "@/lib/model";
 import { moodDari, UCAPAN_GURU, UCAPAN_SISWA } from "@/lib/ucapan";
 
 /**
@@ -18,11 +19,13 @@ export interface SceneCanvasProps {
   panjang: number;
   lebar: number;
   tinggi: number;
-  layout: { x: number; z: number }[];
+  layout: TitikMeja[];
   jumlahMeja: number;
   jumlahKursi: number;
-  jumlahJendela: number;
-  posisiJendela: string;
+  /** Ketat unit tiap jendela: dinding + posisi pusatnya (dari lib/model). */
+  jendelaUnits: JendelaUnit[];
+  /** Kedudukan pintu (dari editor denah); tanpa ini memakai default. */
+  pintu?: PosisiPintu;
   debit: number;
   hotFactor: number;
   /** Suhu udara dalam (°C) — menentukan mood kalimat yang diucapkan karakter. */
@@ -327,8 +330,17 @@ export default function SceneCanvas(props: SceneCanvasProps) {
     mount.appendChild(R.renderer.domElement);
 
     /* ---------- cahaya ---------- */
-    scene.add(new THREE.AmbientLight(0xfff6ea, 0.75));
-    scene.add(new THREE.HemisphereLight(0xcfe0f5, 0x8a7d68, 1.5));
+    // IBL: benda logam/kaca (kaki meja, gagang pintu, jarum kipas) butuh
+    // environment map supaya tidak tampak hampir hitam. RoomEnvironment
+    // di-PMREM sekali per scene, bukan per frame.
+    const pmrem = new THREE.PMREMGenerator(R.renderer);
+    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmrem.dispose();
+
+    // Hemisphere & ambient diturunkan karena IBL ikut menerangi ruangan —
+    // cahaya ganda membuat material terang jadi "kebiruan cuci".
+    scene.add(new THREE.AmbientLight(0xfff6ea, 0.45));
+    scene.add(new THREE.HemisphereLight(0xcfe0f5, 0x8a7d68, 0.5));
     const sun = new THREE.DirectionalLight(0xfff3dd, 2.2);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -532,90 +544,75 @@ export default function SceneCanvas(props: SceneCanvasProps) {
       return grp;
     }
 
-    // Sebar pusat jendela pada satu interval, muatkan lebar minimal.
-    function sebar(n: number, lo: number, hi: number): { c: number; w: number }[] {
-      let count = n;
-      let step = (hi - lo) / count;
-      while (count > 1 && step < 1.15) {
-        count--;
-        step = (hi - lo) / count;
-      }
-      const w = Math.min(1.5, step * 0.82);
-      return Array.from({ length: count }, (_, i) => ({ c: lo + step * (i + 0.5), w }));
-    }
-
-    const nWin = Math.max(0, props.jumlahJendela);
-    const posisi = props.posisiJendela as "kiri" | "kanan" | "depan" | "belakang";
-    const openingsPerWall: Partial<Record<typeof posisi, Opening[]>> = {};
+    const units = props.jendelaUnits;
+    const openingsPerWall: Partial<Record<JendelaUnit["sisi"], Opening[]>> = {};
     const winYcSide = Math.min(H - 0.85, 1.95);
     const winH = Math.min(1.2, H * 0.4);
 
-    if (nWin > 0) {
-      if (posisi === "kiri" || posisi === "kanan") {
-        const m = Math.max(1.15, W * 0.14);
-        const wins = sebar(nWin, -W / 2 + m, W / 2 - m);
-        openingsPerWall[posisi] = wins.map(({ c, w }) => ({
-          c, w: w + 0.16, y0: winYcSide - winH / 2 - 0.09, y1: winYcSide + winH / 2 + 0.09,
-        }));
-        wins.forEach(({ c, w }, i) => {
-          const x = posisi === "kiri" ? -L / 2 : L / 2;
-          addJendela(new THREE.Vector3(x, winYcSide, c), posisi === "kiri" ? Math.PI / 2 : -Math.PI / 2, w, winH);
-          if (i === 0) {
-            sun.position.set(x * 2.2, H * 2.4, c);
-            sun.target.position.set(0, 0, 0);
-          }
-        });
-      } else if (posisi === "belakang") {
-        const m = Math.max(1.9, L * 0.16); // beri ruang pintu di sudut
-        const wins = sebar(nWin, -L / 2 + m, L / 2 - m);
-        openingsPerWall.belakang = wins.map(({ c, w }) => ({
-          c, w: w + 0.16, y0: winYcSide - winH / 2 - 0.09, y1: winYcSide + winH / 2 + 0.09,
-        }));
-        wins.forEach(({ c, w }, i) => {
-          addJendela(new THREE.Vector3(c, winYcSide, W / 2), Math.PI, w, winH);
-          if (i === 0) {
-            sun.position.set(c, H * 2.4, W * 2.2);
-            sun.target.position.set(0, 0, 0);
-          }
-        });
+    // Zona papan tulis: SATU sumber angka untuk jendela-depan, poster, dan
+    // mesh papan. Dulu tiga tempat punya formula beda (min(L*0.25,1.6) vs
+    // min(L*0.55,4)) supaya jendela bisa menancap di pojok papan.
+    const papanW = Math.min(L * 0.55, 3.2);
+    const papanHalf = papanW / 2;
+    const papanZonaHalf = papanHalf + 0.28; // bingkai + napas
+    const ycDepan = Math.min(H - 0.72, 2.5);
+    const hDepan = Math.min(1.05, H * 0.34);
+
+    // Lebar bukaan tiap jendela mengikuti jarak tetangga di dindingnya.
+    const lebarJendela = (i: number): number => {
+      const u = units[i];
+      const len = panjangDinding(u.sisi, L, W);
+      const tetangga = units
+        .filter((v) => v.sisi === u.sisi)
+        .map((v) => v.offset)
+        .filter((v) => v !== u.offset)
+        .sort((a, b) => a - b);
+      const sisiKanan = Math.min(...tetangga.filter((v) => v > u.offset), len / 2) - u.offset;
+      const sisiKiri = u.offset - Math.max(...tetangga.filter((v) => v < u.offset), -len / 2);
+      return Math.max(0.8, Math.min(1.5, Math.min(sisiKanan, sisiKiri) * 0.82));
+    };
+
+    units.forEach((u, i) => {
+      const w = lebarJendela(i);
+      const put = (y0: number, y1: number) => {
+        const list = openingsPerWall[u.sisi] ?? [];
+        list.push({ c: u.offset, w: w + 0.16, y0, y1 });
+        openingsPerWall[u.sisi] = list;
+      };
+      if (u.sisi === "kiri" || u.sisi === "kanan") {
+        const x = u.sisi === "kiri" ? -L / 2 : L / 2;
+        put(winYcSide - winH / 2 - 0.09, winYcSide + winH / 2 + 0.09);
+        addJendela(
+          new THREE.Vector3(x, winYcSide, u.offset),
+          u.sisi === "kiri" ? Math.PI / 2 : -Math.PI / 2,
+          w, winH,
+        );
+      } else if (u.sisi === "belakang") {
+        put(winYcSide - winH / 2 - 0.09, winYcSide + winH / 2 + 0.09);
+        addJendela(new THREE.Vector3(u.offset, winYcSide, W / 2), Math.PI, w, winH);
       } else {
-        // Depan: baris jendela tinggi di kiri & kanan papan tulis.
-        const bwHalf = Math.min(L * 0.25, 1.6); // setengah zona papan tulis
-        const m = Math.max(0.9, L * 0.08);
-        const sideW = L / 2 - m - bwHalf;
-        const capPerSide = Math.max(0, Math.floor((sideW + 0.4) / 1.35));
-        const want = Math.min(nWin, capPerSide * 2);
-        const nKiri = Math.ceil(want / 2);
-        const nKanan = want - nKiri;
-        const ycDepan = Math.min(H - 0.72, 2.5);
-        const hDepan = Math.min(1.05, H * 0.34);
-        const mkSide = (n: number, lo: number, hi: number) =>
-          n > 0 && hi - lo >= 1.2 ? sebar(n, lo, hi) : [];
-        const wins = [
-          ...mkSide(nKiri, -L / 2 + m, -bwHalf),
-          ...mkSide(nKanan, bwHalf, L / 2 - m),
-        ];
-        openingsPerWall.depan = wins.map(({ c, w }) => ({
-          c, w: w + 0.16, y0: ycDepan - hDepan / 2 - 0.09, y1: ycDepan + hDepan / 2 + 0.09,
-        }));
-        wins.forEach(({ c, w }, i) => {
-          addJendela(new THREE.Vector3(c, ycDepan, -W / 2), 0, w, hDepan);
-          if (i === 0) {
-            sun.position.set(c, H * 2.3, -W * 2.2);
-            sun.target.position.set(0, 0, 0);
-          }
-        });
+        put(ycDepan - hDepan / 2 - 0.09, ycDepan + hDepan / 2 + 0.09);
+        addJendela(new THREE.Vector3(u.offset, ycDepan, -W / 2), 0, w, hDepan);
       }
-    } else {
+      if (i === 0) {
+        const s0 = units[0];
+        if (s0.sisi === "kiri") sun.position.set(-L * 2.2, H * 2.4, s0.offset);
+        else if (s0.sisi === "kanan") sun.position.set(L * 2.2, H * 2.4, s0.offset);
+        else if (s0.sisi === "belakang") sun.position.set(s0.offset, H * 2.4, W * 2.2);
+        else sun.position.set(s0.offset, H * 2.3, -W * 2.2);
+        sun.target.position.set(0, 0, 0);
+      }
+    });
+    if (units.length === 0) {
       sun.position.set(-L * 1.4, H * 2.4, -W * 1.2);
       sun.target.position.set(0, 0, 0);
     }
 
-    // Arah aliran udara: dari sisi jendela ke seberang.
+    // Arah aliran udara: dari dinding jendela pertama ke seberang.
     const dirMap: Record<string, [number, number]> = {
       kiri: [1, 0], kanan: [-1, 0], depan: [0, 1], belakang: [0, -1],
     };
-    R.dir.set(...(dirMap[posisi] ?? [1, 0]), 0).normalize();
+    R.dir.set(...(dirMap[units[0]?.sisi ?? "kiri"] ?? [1, 0]), 0).normalize();
 
     // Empat dinding beton gelap.
     buildDinding({ axis: "x", at: -W / 2, sgn: -1, len: L, openings: openingsPerWall.depan ?? [] });
@@ -625,7 +622,7 @@ export default function SceneCanvas(props: SceneCanvasProps) {
 
     /* ---------- papan tulis (dinding depan) ---------- */
     {
-      const bw = Math.min(L * 0.55, 4);
+      const bw = papanW;
       const bh = 1.15;
       const by = 1.5;
       const zF = -W / 2;
@@ -640,14 +637,54 @@ export default function SceneCanvas(props: SceneCanvasProps) {
       scene.add(lbl);
     }
 
-    /* ---------- pintu (dinding belakang, pojok kiri) ---------- */
-    if (posisi !== "belakang") {
-      const zB = W / 2;
-      const dx = -L / 2 + 0.95;
-      box(scene, 0.94, 2.02, 0.08, dx, 1.01, zB - 0.05, std(0x7a4f28, { roughness: 0.6 }));
-      const knob = new THREE.Mesh(new THREE.SphereGeometry(0.045, 12, 12), std(0xfacc15, { metalness: 0.6, roughness: 0.3 }));
-      knob.position.set(dx + 0.33, 1.05, zB - 0.11);
-      scene.add(knob);
+    /* ---------- pintu (dari editor denah; default: pojok kiri belakang) ---------- */
+    {
+      // Pintu tidak boleh berdiri di dalam lubang jendela: editor denah
+      // menjarakkan jendela dari kantung pintu (lihat gerakJendela).
+      const sisiDecode = (s: string): "kiri" | "kanan" | "depan" | "belakang" =>
+        s === "kiri" || s === "kanan" || s === "depan" || s === "belakang" ? s : "belakang";
+      const sisi = sisiDecode(props.pintu?.sisi ?? "belakang");
+      const lenD = sisi === "kiri" || sisi === "kanan" ? W : L;
+      const off = Math.min(lenD - 0.56, Math.max(0.56, props.pintu?.offset ?? 0.95));
+
+      // Titik pusat pintu muka dinding + orientasi (Normal dinding → dalam).
+      let px = 0;
+      let pz = 0;
+      let rotY = 0;
+      if (sisi === "belakang") {
+        px = -L / 2 + off;
+        pz = W / 2;
+        rotY = 0; // daun masuk ke ruangan: lokal -z menjadi world -z
+      } else if (sisi === "depan") {
+        px = -L / 2 + off;
+        pz = -W / 2;
+        rotY = Math.PI;
+      } else if (sisi === "kiri") {
+        px = -L / 2;
+        pz = -W / 2 + off;
+        rotY = -Math.PI / 2;
+      } else {
+        px = L / 2;
+        pz = -W / 2 + off;
+        rotY = Math.PI / 2;
+      }
+      const grpPintu = new THREE.Group();
+      grpPintu.position.set(px, 0, pz);
+      grpPintu.rotation.y = rotY;
+      const daunPintu = new THREE.Mesh(
+        new THREE.BoxGeometry(0.94, 2.02, 0.08),
+        std(0x7a4f28, { roughness: 0.6 }),
+      );
+      daunPintu.position.set(0, 1.01, -0.05);
+      daunPintu.castShadow = true;
+      grpPintu.add(daunPintu);
+      const knob = new THREE.Mesh(
+        new THREE.SphereGeometry(0.045, 12, 12),
+        std(0xfacc15, { metalness: 0.6, roughness: 0.3 }),
+      );
+      knob.position.set(0.33, 1.05, -0.11);
+      grpPintu.add(knob);
+      scene.add(grpPintu);
     }
 
     /* ---------- util pilih slot dinding kosong ---------- */
@@ -776,7 +813,13 @@ export default function SceneCanvas(props: SceneCanvasProps) {
     {
       const jendelaBelakang = openingsPerWall.belakang ?? [];
       const penghalang = [...jendelaBelakang.map((o) => ({ c: o.c, w: o.w + 0.25 }))];
-      if (posisi !== "belakang") penghalang.push({ c: -L / 2 + 0.95, w: 1.2 }); // pintu
+      // pintu bisa di dinding mana pun sekarang — jadi penghalang hanya
+      // ketika pintu memang di dinding belakang
+      const pintuSisi = props.pintu?.sisi ?? "belakang";
+      if (pintuSisi === "belakang") {
+        const pintuOff = Math.min(L - 0.56, Math.max(0.56, props.pintu?.offset ?? 0.95));
+        penghalang.push({ c: -L / 2 + pintuOff, w: 1.2 });
+      }
       let slot = celahTerluas(penghalang, -L / 2 + 0.35, L / 2 - 0.35, 0.45);
       let yaw = Math.PI; // menghadap ruangan (dinding belakang → normal -z)
       let cx = 0;
@@ -836,8 +879,8 @@ export default function SceneCanvas(props: SceneCanvasProps) {
       const daunMacem = [0x15803d, 0x16a34a, 0x14532d];
       const batangMat = std(0x586b33, { roughness: 0.9 });
       for (const [tx, tz, sec] of [
-        [-L / 2 + 0.42, -W / 2 + 0.45, 71],
-        [L / 2 - 0.45, W / 2 - 0.45, 173],
+        [-L / 2 + 0.32, -W / 2 + 0.34, 71],
+        [L / 2 - 0.34, W / 2 - 0.34, 173],
       ] as [number, number, number][]) {
         const rnd = lcg(sec);
         const g = new THREE.Group();
@@ -900,9 +943,10 @@ export default function SceneCanvas(props: SceneCanvasProps) {
       }
     }
 
-    // Poster dinding depan (dua, di sisi kiri-kanan papan tulis)
+    // Poster dinding depan (dua, di sisi kiri-kanan papan tulis) — zona
+    // papan pakai papanHalf yang sama dengan mesh papan & jendela depan.
     {
-      const bwh = Math.min(L * 0.25, 1.6); // setengah zona papan tulis
+      const bwh = papanHalf;
       const penghalang = [
         ...(openingsPerWall.depan ?? []).map((o) => ({ c: o.c, w: o.w + 0.3 })),
         { c: 0, w: bwh * 2 + 0.6 }, // zona papan tulis
@@ -951,48 +995,76 @@ export default function SceneCanvas(props: SceneCanvasProps) {
 
     const paperPal: number[] = [0xef4444, 0x3b82f6, 0x22c55e, 0xf59e0b, 0xa855f7, 0x64748b];
 
-    function mejaKursi(x: number, z: number, withChair: boolean, i: number) {
-      // meja
-      box(scene, 0.66, 0.05, 0.48, x, 0.73, z, topMat);
-      for (const sx of [-0.29, 0.29])
+    function mejaKursi(p: TitikMeja, i: number, nKursi: number) {
+      const kap2 = p.kap === 2;
+      const hw = kap2 ? 0.63 : 0.33; // setengah lebar meja
+      const x = p.x;
+      const z = p.z;
+      // meja — meja kapasitas 2 lebih panjang dua lipat
+      box(scene, hw * 2, 0.05, 0.48, x, 0.73, z, topMat);
+      for (const sx of [-(hw - 0.04), hw - 0.04])
         for (const sz of [-0.19, 0.19]) box(scene, 0.05, 0.71, 0.05, x + sx, 0.355, z + sz, legMat);
       // Buku tulis + pensil di atas meja (permukaan meja y = 0.755).
       // Warna/rotasi dari LCG ber-seed indeks meja supaya konsisten saat rebuild.
-      const rr = lcg(i * 173 + 41);
-      const bukuA = std(paperPal[Math.floor(rr() * paperPal.length)], { roughness: 0.72 });
-      const bb1 = box(scene, 0.24, 0.024, 0.31, x - 0.09, 0.767, z + 0.01, bukuA);
-      bb1.rotation.y = (rr() - 0.5) * 0.4;
-      if (rr() > 0.35) {
-        // tikar buku kedua bertumpuk — hanya di ~65% meja biar tidak seragam
-        const bukuB = std(paperPal[Math.floor(rr() * paperPal.length)], { roughness: 0.72 });
-        const bb2 = box(scene, 0.21, 0.022, 0.27, x + 0.13, 0.766, z - 0.04, bukuB);
-        bb2.rotation.y = (rr() - 0.5) * 0.55;
+      // Meja kapasitas 2 dapat dua set perlengkapan, satu per pemakai.
+      const nSet = kap2 ? 2 : 1;
+      for (let s = 0; s < nSet; s++) {
+        const rr = lcg(i * 341 + s * 173 + 41);
+        const ox = kap2 ? (s === 0 ? -0.34 : 0.34) : -0.09;
+        const bukuA = std(paperPal[Math.floor(rr() * paperPal.length)], { roughness: 0.72 });
+        const bb1 = box(scene, 0.24, 0.024, 0.31, x + ox, 0.767, z + 0.01, bukuA);
+        bb1.rotation.y = (rr() - 0.5) * 0.4;
+        if (rr() > 0.35) {
+          // tikar buku kedua bertumpuk — hanya di ~65% meja biar tidak seragam
+          const bukuB = std(paperPal[Math.floor(rr() * paperPal.length)], { roughness: 0.72 });
+          const bb2 = box(scene, 0.21, 0.022, 0.27, x + ox + 0.22, 0.766, z - 0.04, bukuB);
+          bb2.rotation.y = (rr() - 0.5) * 0.55;
+        }
+        if (rr() > 0.5) {
+          // tumpukan kertas putih di atas buku pertama
+          box(scene, 0.17, 0.014, 0.22, x + ox, 0.786, z + 0.02, std(0xf6f3ea, { roughness: 0.92 }));
+        }
+        // pensil: silinder tipis tidur di meja; bergetar mengikuti aliran udara
+        if (s < nKursi) {
+          const pensil = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.009, 0.009, 0.17, 6),
+            std(0xfbbf24, { roughness: 0.55 }),
+          );
+          pensil.rotation.z = Math.PI / 2;
+          pensil.position.set(x + ox + 0.3, 0.772, z + 0.15);
+          pensil.castShadow = true;
+          scene.add(pensil);
+          R.kertas.push({ m: pensil, base: pensil.rotation.clone(), fase: rr() * 6.28 });
+        }
       }
-      if (rr() > 0.5) {
-        // tumpukan kertas putih di atas buku pertama
-        box(scene, 0.17, 0.014, 0.22, x - 0.09, 0.786, z + 0.02, std(0xf6f3ea, { roughness: 0.92 }));
-      }
-      // pensil: silinder tipis tidur di meja; bergetar mengikuti aliran udara
-      const pensil = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.009, 0.009, 0.17, 6),
-        std(0xfbbf24, { roughness: 0.55 }),
-      );
-      pensil.rotation.z = Math.PI / 2;
-      pensil.position.set(x + 0.21, 0.772, z + 0.15);
-      pensil.castShadow = true;
-      scene.add(pensil);
-      R.kertas.push({ m: pensil, base: pensil.rotation.clone(), fase: rr() * 6.28 });
       // kursi di belakang meja (siswa memandang -z ke papan)
-      if (!withChair) return;
-      const zc = z + 0.34;
-      box(scene, 0.44, 0.05, 0.42, x, 0.45, zc, seatMat);
-      box(scene, 0.44, 0.5, 0.05, x, 0.72, zc + 0.21, seatMat);
-      for (const sx of [-0.18, 0.18])
-        for (const sz of [-0.17, 0.17]) box(scene, 0.04, 0.45, 0.04, x + sx, 0.225, zc + sz, legMat);
+      const spread = 0.4; // jarak antar dua kursi di meja kembar
+      const kursiX = kap2 ? [-spread / 2, spread / 2] : [0];
+      for (let s = 0; s < nKursi; s++) {
+        const zc = z + 0.34;
+        const cx = x + kursiX[s];
+        box(scene, 0.44, 0.05, 0.42, cx, 0.45, zc, seatMat);
+        box(scene, 0.44, 0.5, 0.05, cx, 0.72, zc + 0.21, seatMat);
+        for (const sx of [-0.18, 0.18])
+          for (const sz of [-0.17, 0.17]) box(scene, 0.04, 0.45, 0.04, cx + sx, 0.225, zc + sz, legMat);
+      }
     }
-    props.layout.slice(0, props.jumlahMeja).forEach((p, i) =>
-      mejaKursi(p.x, p.z, i < props.jumlahKursi, i),
-    );
+    // Satu lewat: meja + kursi. Kuota kursi (slider "Kursi / unit") dibagi
+    // berurutan — meja kapasitas 2 memakai dua kursi bila kuota masih ada.
+    let kursiTerpakai = 0;
+    const titikKursi: { x: number; z: number }[] = [];
+    props.layout.slice(0, props.jumlahMeja).forEach((p, i) => {
+      const kaputy = p.kap === 2 ? 2 : 1;
+      const nK = Math.max(0, Math.min(kaputy, props.jumlahKursi - kursiTerpakai));
+      mejaKursi(p, i, nK);
+      const spread = 0.4;
+      for (let s = 0; s < nK; s++)
+        titikKursi.push({
+          x: p.x + (p.kap === 2 ? (s === 0 ? -spread / 2 : spread / 2) : 0),
+          z: p.z + 0.34,
+        });
+      kursiTerpakai += nK;
+    });
 
     /* ---------- karakter: siswa + guru (bola sederhana) ---------- */
     // Warna kulit & aksesori diacak DETERMINISTIK (lcg) supaya tidak
@@ -1143,11 +1215,12 @@ export default function SceneCanvas(props: SceneCanvasProps) {
       };
     }
 
-    // Siswa: duduk di kursi (kursi ada di z + 0.34 dari meja).
+    // Siswa: duduk di kursi — titik kursi sudah dibagi mengikuti kapasitas
+    // tiap meja oleh lewat di atas (kursi kembar terpisah ±0,2 dari meja).
     const orangSiswa: Orang[] = [];
-    props.layout.slice(0, props.jumlahKursi).forEach((p, i) => {
+    titikKursi.forEach((k, i) => {
       orangSiswa.push(
-        buatOrang({ x: p.x, z: p.z + 0.34, yDuduk: 0.46, guru: false, rnd: lcg(i * 977 + 13) }),
+        buatOrang({ x: k.x, z: k.z, yDuduk: 0.46, guru: false, rnd: lcg(i * 977 + 13) }),
       );
     });
     // Guru: DUDUK di kursi di belakang mejanya, menghadap kelas (+z).
@@ -1636,8 +1709,7 @@ export default function SceneCanvas(props: SceneCanvasProps) {
     props.layout,
     props.jumlahMeja,
     props.jumlahKursi,
-    props.jumlahJendela,
-    props.posisiJendela,
+    props.jendelaUnits,
   ]);
 
   return <div ref={mountRef} className="absolute inset-0" />;

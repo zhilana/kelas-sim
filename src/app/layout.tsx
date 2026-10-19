@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
+import ThemeToggle from "@/components/ThemeToggle";
 import "katex/dist/katex.min.css";
 import "./globals.css";
 
@@ -23,12 +24,24 @@ export const metadata: Metadata = {
     "Simulasi kelas 3D: kepadatan siswa, jendela, aliran udara, radiasi matahari, dan suhu — lengkap dengan kalkulator dan galeri bahan bangunan.",
 };
 
+/* Tema: dipasang pakai atribut data-theme SEBELUM render pertama supaya
+   tidak ada kilatan tema salah. Nilai diambil dari localStorage kalau
+   pernah dipilih manual, kalau tidak ikut prefers-color-scheme sistem. */
+const TEMA_SCRIPT = `(function(){try{var t=localStorage.getItem("kelas-theme");if(t!=="light"&&t!=="dark"){t=window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";}document.documentElement.setAttribute("data-theme",t);}catch(e){}})();`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     /* Class variabel WAJIB di <html>, bukan <body>: --font-sans dihitung di
-       :root, jadi --font-jakarta harus sudah tersedia di sana. */
-    <html lang="id" className={jakarta.variable}>
-      <body className="font-sans antialiased">{children}</body>
+       :root, jadi --font-jakarta harus sudah tersedia di sana.
+       suppressHydrationWarning: data-theme dipasang oleh skrip di atas,
+       jadi atribut html bisa berbeda dari render server. */
+    <html lang="id" className={jakarta.variable} suppressHydrationWarning>
+      <body className="font-sans antialiased">
+        <script dangerouslySetInnerHTML={{ __html: TEMA_SCRIPT }} />
+        {/* Tema light/dark: sekali dipasang di layout, menempel di semua rute. */}
+        <ThemeToggle />
+        {children}
+      </body>
     </html>
   );
 }

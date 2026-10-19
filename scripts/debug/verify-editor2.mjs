@@ -1,0 +1,16 @@
+import { chromium } from "playwright";
+const b = await chromium.launch();
+const p = await b.newPage({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
+await p.goto("http://localhost:3017/simulasi", { waitUntil: "networkidle" });
+await p.waitForTimeout(2000);
+await p.screenshot({ path: "/home/jeli/.hermes/cache/scratch/ed-desktop.png" });
+await p.click("[aria-label='Perbesar denah layar penuh']");
+await p.waitForTimeout(1200);
+await p.screenshot({ path: "/home/jeli/.hermes/cache/scratch/ed-penuh.png" });
+await p.close();
+const m = await b.newPage({ viewport: { width: 390, height: 844 }, reducedMotion: "reduce" });
+await m.goto("http://localhost:3017/simulasi", { waitUntil: "networkidle" });
+await m.waitForTimeout(1800);
+await m.screenshot({ path: "/home/jeli/.hermes/cache/scratch/ed-mobile.png" });
+await m.close();
+console.log("ok");

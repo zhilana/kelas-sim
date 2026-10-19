@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import gsap from "gsap";
 import type { Langkah } from "@/lib/model";
 import Tex from "./Tex";
 
@@ -118,11 +119,17 @@ export default function FormulaPanel({ langkah, aktif, setAktif }: Props) {
     if (aktif === langkah.length - 1) setJalan(false);
   }, [aktif, langkah.length]);
 
-  // Scroll kartu aktif ke tengah.
+  // Scroll kartu aktif ke tengah + pop kecil (GSAP). Halus dan dibatalkan
+  // otomatis saat user bergerak cepat — scrollIntoView "smooth" susah
+  // dikendalikan dan kerap mentok saat autoplay maju tiap 3,4 detik.
   useEffect(() => {
     if (aktif < 0 || !trackRef.current) return;
-    const el = trackRef.current.children[aktif] as HTMLElement | undefined;
-    el?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+    const track = trackRef.current;
+    const el = track.children[aktif] as HTMLElement | undefined;
+    if (!el) return;
+    const target = Math.max(0, el.offsetLeft - (track.clientWidth - el.offsetWidth) / 2);
+    gsap.to(track, { scrollLeft: target, duration: 0.55, ease: "power3.out" });
+    gsap.fromTo(el, { scale: 0.965 }, { scale: 1, duration: 0.45, ease: "back.out(2)", overwrite: true });
   }, [aktif]);
 
   return (

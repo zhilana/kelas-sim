@@ -38,3 +38,7 @@ yarn-error.log*
 
 # scratch dev-only (scripts/crop-tmp.mjs, shoot-tmp.mjs)
 /scripts/*-tmp.mjs
+
+# agent workspace
+/.agents/
+/.hermes/

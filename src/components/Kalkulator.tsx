@@ -2,6 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { simulate } from "@/lib/model";
+import { usePindah } from "@/lib/navigasi";
+import SliderNum from "./SliderNum";
+import { kata, useReveal } from "./animasi";
+import { GAYA_NADA, LABEL_NADA, nadaSuhu, ThermalScale } from "./Metrik";
 
 /* ------------------------------ util angka ------------------------------ */
 
@@ -217,25 +221,42 @@ function KalkulatorKelas() {
   const nadaKelas = (n?: string) =>
     n === "baik" ? "text-good" : n === "waspada" ? "text-warn" : n === "buruk" ? "text-bad" : "text-ink";
 
+  const nada = nadaSuhu(h.suhuDalam);
+  const g = GAYA_NADA[nada];
+
   return (
-    <div className="rounded-xl border border-line bg-panel">
-      <div className="grid grid-cols-2 gap-3 border-b border-line p-4 sm:grid-cols-4">
+    <div className="overflow-hidden rounded-2xl border border-line bg-panel shadow-card">
+      <div className="grid grid-cols-1 gap-3 border-b border-line p-4 sm:grid-cols-2">
         {FIELD.map((f) => (
-          <label key={f.k} className="block">
-            <span className="mb-1 block text-[11px] font-medium text-muted">
-              {f.label} <span className="text-muted/70">/ {f.satuan}</span>
-            </span>
-            <input
-              type="number"
-              value={nilai[f.k]}
-              min={f.min}
-              max={f.max}
-              step={f.step}
-              onChange={(e) => setNilai((v) => ({ ...v, [f.k]: e.target.value }))}
-              className="w-full rounded-lg border border-line bg-panel px-2.5 py-1.5 text-sm tabular-nums outline-none transition-colors focus:border-accent"
-            />
-          </label>
+          <SliderNum
+            key={f.k}
+            label={`${f.label} / ${f.satuan}`}
+            value={nilai[f.k]}
+            onValue={(v) => setNilai((n) => ({ ...n, [f.k]: v }))}
+            min={f.min}
+            max={f.max}
+            step={f.step}
+          />
         ))}
+      </div>
+
+      {/* suhu sebagai angka utama, bukan satu baris di daftar */}
+      <div className="border-b border-line bg-panel2/40 px-4 pb-4 pt-3.5">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="t-kicker">Suhu dalam</p>
+            <p className="mt-1 flex items-baseline gap-1">
+              <span className={`text-[34px] font-bold leading-none tracking-tight tabular-nums ${g.teks}`}>
+                {rapikan(h.suhuDalam)}
+              </span>
+              <span className="text-sm font-semibold text-muted">°C</span>
+            </p>
+          </div>
+          <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${g.latar} ${g.teks}`}>
+            {LABEL_NADA[nada]}
+          </span>
+        </div>
+        <ThermalScale suhu={h.suhuDalam} ringkas />
       </div>
 
       <ul className="divide-y divide-line">
@@ -245,7 +266,7 @@ function KalkulatorKelas() {
               <p className="text-[13px] font-medium">{b.label}</p>
               <p className="truncate text-[11px] text-muted">{b.rumus}</p>
             </div>
-            <span className={`shrink-0 text-sm font-semibold tabular-nums ${nadaKelas(b.nada)}`}>{b.nilai}</span>
+            <span className={`shrink-0 text-[15px] font-semibold tabular-nums ${nadaKelas(b.nada)}`}>{b.nilai}</span>
           </li>
         ))}
       </ul>
@@ -255,29 +276,31 @@ function KalkulatorKelas() {
 
 /* --------------------------------- page --------------------------------- */
 
-export default function Kalkulator({ onHome }: { onHome: () => void }) {
+export default function Kalkulator() {
+  const keMenu = usePindah();
+  const akar = useReveal<HTMLElement>();
   return (
-    <main className="anim-stage mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6 sm:py-10">
+    <main ref={akar} className="anim-stage mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6 sm:py-10">
       <header className="flex flex-wrap items-center gap-3">
         <button
-          onClick={onHome}
+          onClick={() => keMenu("menu")}
           className="rounded-lg border border-line bg-panel px-3.5 py-2 text-xs font-medium text-muted transition-colors hover:border-line-strong hover:text-ink"
         >
           ← Menu
         </button>
         <div>
-          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Kalkulator</h1>
-          <p className="text-xs text-muted">Hitungan cepat, tanpa perlu membangun kelas 3D.</p>
+          <h1 className="t-title">{kata({ children: "Kalkulator" })}</h1>
+          <p className="text-xs text-muted" data-reveal>Hitungan cepat, tanpa perlu membangun kelas 3D.</p>
         </div>
       </header>
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
-        <section className="flex flex-col gap-3">
+        <section className="flex flex-col gap-3" data-reveal>
           <h2 className="text-sm font-semibold">Kalkulator biasa</h2>
           <KalkulatorBiasa />
         </section>
 
-        <section className="flex flex-col gap-3">
+        <section className="flex flex-col gap-3" data-reveal>
           <div className="flex items-baseline justify-between">
             <h2 className="text-sm font-semibold">Kalkulator kelas</h2>
             <span className="text-[11px] text-muted">hasil berubah saat angka diubah</span>
