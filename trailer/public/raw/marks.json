@@ -1,0 +1,18 @@
+{
+  "menu": {
+    "mulai": 2.678,
+    "selesai": 41.137
+  },
+  "simulasi": {
+    "mulai": 2.645,
+    "selesai": 107.134
+  },
+  "kalkulator": {
+    "mulai": 3.41,
+    "selesai": 25.339
+  },
+  "bahan": {
+    "mulai": 3.278,
+    "selesai": 68.384
+  }
+}
